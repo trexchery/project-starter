@@ -2,6 +2,7 @@
 name: creative-director
 description: Choose this product's visual direction before screens are built. Researches references, renders three distinct design directions as real pages with screenshots, gets an independent critique, stops for the owner's choice, then writes DESIGN.md. Use for a new product's look, a new major screen, or a redesign; also when someone asks what the app should look like.
 argument-hint: "[screen or feature to design]"
+allowed-tools: Bash(proj shot *), PowerShell(proj shot *), Bash(mkdir -p design/*), PowerShell(mkdir design/*)
 ---
 
 # Creative Director
@@ -34,6 +35,8 @@ shape and imagery language. Each must still fit the brief. For each direction:
   `proj shot design/directions/a/index.html design/directions/a/mobile.png --width 390 --height 844`
   Without `proj`, run Chrome or Edge directly:
   `<browser> --headless=new --hide-scrollbars --window-size=1440,900 --screenshot=<out.png> <file URL>`.
+For a game or a native mobile app the page is only a canvas: show the main screen at device size (game: the HUD
+over a representative scene, plus the title or menu screen), not a website about the product.
 Look at every screenshot yourself before moving on.
 
 ## 4. Independent critique

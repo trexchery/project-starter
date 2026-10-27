@@ -36,7 +36,8 @@ On Windows, if `proj` is not found afterwards, install into the per-user npm fol
 
 Every project:
 
-- the stack's skeleton with one passing test (node, python, or a generic layout for other languages);
+- the stack's skeleton with a passing test for node and python; for other languages a placeholder check that the
+  `new-project` skill replaces with the real toolchain;
 - `AGENTS.md` as the single source of truth for every agent, and `CLAUDE.md` importing it;
 - subagents that pick their own model and effort: `scout` (haiku, low), `implementer` (sonnet, medium),
   `reviewer` (sonnet, high), `deep` (opus, high), with matching Codex agents;
@@ -70,6 +71,9 @@ cheap work to cheap tiers and escalate only after a failed attempt.
 desktop and mobile screenshots (`proj shot`), has `visual-critic` review them without seeing the designer's
 reasoning, and stops for your choice. Only then does it write `DESIGN.md` (tokens, components, accessibility),
 which every later UI change is checked against.
+
+See [docs/EXAMPLES.md](docs/EXAMPLES.md) for four generated projects and a real Creative Director run with its
+screenshots.
 
 ## Existing repositories
 

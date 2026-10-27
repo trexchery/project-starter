@@ -6,7 +6,7 @@
   "type": "module",
   "repository": "github:trexchery/project-starter",
   "license": "MIT",
-  "author": "trexchery",
+  "author": "project-starter contributors",
   "bin": {
     "proj": "bin/proj.js"
   },

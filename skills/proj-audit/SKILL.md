@@ -2,7 +2,7 @@
 name: proj-audit
 description: Git and GitHub repo hygiene check with the `proj` CLI - stale or merged branches, orphaned or forgotten git worktrees, idle or failing pull requests, duplicate issues, outdated dependencies, GitHub Actions minutes used and CI cost hotspots - then safe branch and worktree cleanup. Use for a repo health check, cleaning up old branches or worktrees, checking PR/CI state, or finding what wastes Actions minutes. Not for reviewing code quality.
 argument-hint: "[clean | ci]"
-allowed-tools: Bash(proj version), Bash(proj doctor *), Bash(proj perf *), Bash(proj clean), Bash(git rev-parse *), Bash(gh auth status*)
+allowed-tools: Bash(proj version), Bash(proj doctor *), Bash(proj perf *), Bash(proj clean), Bash(git rev-parse *), Bash(gh auth status*), PowerShell(proj version), PowerShell(proj doctor *), PowerShell(proj perf *), PowerShell(proj clean), PowerShell(git rev-parse *), PowerShell(gh auth status*)
 ---
 
 # proj audit
