@@ -1,4 +1,4 @@
 name = "deep"
-description = "Architecture, security-sensitive changes, and debugging that already failed once."
+description = "Architecture and debugging that already failed once."
 model_reasoning_effort = "high"
 developer_instructions = "Find the root cause before editing. Back every claim with its command, exit code and commit SHA."

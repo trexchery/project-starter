@@ -2,7 +2,7 @@
 name: new-project
 description: Start a new project from a plain-language idea. Understands what is being built, then creates a tailored, agent-ready repository with the proj CLI - stack, tests, cheap CI, GitHub protections, AGENTS.md and CLAUDE.md, specialist subagents with their own models, security and database rules where they apply, and a Creative Director kit only for visual products. Use when someone wants to start, create, bootstrap, scaffold or set up a new project, app or repository.
 argument-hint: "[name] [what you are building]"
-allowed-tools: Bash(proj version), Bash(proj new *), Bash(gh auth status*)
+allowed-tools: Bash(proj version), Bash(proj new *), Bash(gh auth status*), Bash(git add *), Bash(git commit *), PowerShell(proj version), PowerShell(proj new *), PowerShell(gh auth status*), PowerShell(git add *), PowerShell(git commit *)
 ---
 
 # New project
@@ -42,6 +42,11 @@ In the new repository:
   write "TBD" where nothing was said. Never invent requirements.
 - `AGENTS.md`, section "Project": add up to five project-specific facts or rules learned in the conversation
   (domain terms, invariants, integrations). Nothing generic: the template already covers that.
+- Generic stack only (Go, Rust, Swift, C#, ...): the template ships a placeholder `scripts/check.ps1`. Set up the
+  real toolchain's minimal skeleton with one passing test, make `scripts/check.ps1` run it (`go test ./...`,
+  `cargo test`, `dotnet test`), add the language's build outputs to `.gitignore`, its package ecosystem to
+  `.github/dependabot.yml`, and its setup step to `.github/workflows/ci.yml`. CI runs the check with `pwsh`, which
+  GitHub's runners include; locally it needs PowerShell 7.
 - Commit: `docs: tailor brief and agent instructions`.
 
 Never set a model or effort in the project's settings (the owner chooses those), never add design files to a

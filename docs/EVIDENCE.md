@@ -1,9 +1,11 @@
-# Evidence: end-to-end run, 2026-10-27
+# Evidence: optional utilities, end-to-end run (2026-10-27)
+
+Bootstrap examples (what `proj new` generates for different projects) are in [EXAMPLES.md](EXAMPLES.md).
 
 A disposable private repository created by `proj new` (private, so its run links are not public).
 Everything below was observed, not assumed. SHAs are exact.
 
-## 1. Bootstrap (`proj new proj-e2e-20261027 --stack node`)
+## 1. Bootstrap (`proj new demo --stack node`)
 
 - Private repo created; settings read back: `allow_squash_merge=true, allow_merge_commit=false,
   allow_rebase_merge=false, delete_branch_on_merge=true, private=true`. Dependabot alerts + security updates on.
@@ -14,13 +16,13 @@ Everything below was observed, not assumed. SHAs are exact.
 
 ## 2. Draft PRs cost nothing; ready runs once on the exact SHA
 
-- PR #1 opened as a draft by `proj checkpoint --push`. CI run 40583707723 on `fa4e5ab95d`: conclusion
+- the PR opened as a draft by `proj checkpoint --push`. CI run on `<sha>`: conclusion
   `skipped`, no job started (0 runner minutes). `proj status` showed `ci@sha: skipped`, not verified.
 - `proj ready` refused until `proj check --full` had passed at that SHA, then marked the PR ready.
-- Superseded run cancelled: run 40583980395 on `dea8d43c55` -> `cancelled` when `7f3c6a296e` was pushed;
-  run 40583986197 on `7f3c6a296e` -> `success`. `proj status`: `ci@sha verified`, `tested no` (the local
+- Superseded run cancelled: the run on `<sha>` -> `cancelled` when `<sha>` was pushed;
+  the run on `<sha>` -> `success`. `proj status`: `ci@sha verified`, `tested no` (the local
   full suite had run on the older SHA, and status says so).
-- `proj finish greet --merge` merged with `--match-head-commit 7f3c6a296e` -> squash commit `4da2b7a`.
+- `proj finish greet --merge` merged with `--match-head-commit 7f3c6a296e` -> squash commit `<sha>`.
 
 ## 3. Interruption recovery with real Claude Code hooks
 
@@ -40,47 +42,47 @@ Everything below was observed, not assumed. SHAs are exact.
   before deletion, main fast-forwarded. `proj clean` listed 2 merged probe branches (dry run), `--apply`
   deleted exactly those 2 after archiving them.
 
-## 5. CI efficiency (PR #3, template upgrade via `proj adopt --upgrade`)
+## 5. CI efficiency (the PR, template upgrade via `proj adopt --upgrade`)
 
 - `proj adopt --upgrade` in a task worktree: added 2 files, upgraded 7 unedited starter files, kept 23.
 - Fail-closed tiers: a change to `.github/workflows/ci.yml` made `proj check` run the full suite
   ("can affect every test").
-- Local duplicate prevention: a second `proj check --full` at `d8155aa182` printed "already passed ...
+- Local duplicate prevention: a second `proj check --full` at `<sha>` printed "already passed ...
   not running it again".
 - Per-test-file timings recorded from JUnit into `.git/proj/profile.jsonl`; heavy tier (`npm audit`) passed.
-- `proj ready` on a PR already verified at `66898bb11b`: "already ready ... CI is verified: not
+- `proj ready` on a PR already verified at `<sha>`: "already ready ... CI is verified: not
   triggering another run".
-- CI reuse: a manual `workflow_dispatch` for the same SHA (run 40588241044) finished in 6 s; the reuse
+- CI reuse: a manual `workflow_dispatch` for the same SHA finished in 6 s; the reuse
   step hit and checkout, install, tests and upload were all `skipped`.
 - Ephemeral self-hosted runner: `proj runner use` + `proj runner start --docker`; the next push
-  (`bc6ef6c6ab`) ran `verify` on runner `proj-docker-<host>-10272137` (labels self-hosted, proj-ephemeral),
+  (`<sha>`) ran `verify` on runner `proj-docker-<host>-10272137` (labels self-hosted, proj-ephemeral),
   `success` in 51 s and 0 billed minutes; afterwards the container was gone and 0 runners were registered.
 - `proj perf`: 7 billed minutes over 15 runs, per-job median/p95, costliest steps, and two concrete
   opportunities (timeout 15 min vs p95 under 1 min; minutes on cancelled runs). Dependabot's own update
   jobs are counted as free.
 - `proj bench --runs 3`: baseline 1.3 s, serial 1.7 s, 2 shards 0.8 s local but 2 billed minutes, 4 shards
   4 billed minutes -> "Keep the current setup" (sharding would cost more minutes for no CI wall-clock gain).
-- `proj finish ci-efficiency --merge` merged exactly `bc6ef6c6ab` -> `a90d120`.
+- `proj finish ci-efficiency --merge` merged exactly `<sha>` -> `<sha>`.
 
-## 6. Re-verification after the final adversarial review (PR #4)
+## 6. Re-verification after the final adversarial review (the PR)
 
 The review hardened: opt-ins (compute, runners) read only from `~/.proj/config.json`; CI verdict and reuse keyed
 on the CI workflow's own runs (a job named `verify` elsewhere never counts); one concurrency group per PR;
 self-hosted routing excludes bot-authored PRs and bot branches; runner token passed on stdin; importer-aware,
 fail-closed test selection. Re-run live on the upgraded templates:
 
-- `proj ready --wait` on `7e475ebb75` ran `verify` on container runner `proj-docker-<host>-10272201`
+- `proj ready --wait` on `<sha>` ran `verify` on container runner `proj-docker-<host>-10272201`
   (`--cap-drop ALL`, `docker inspect` shows no `RUNNER_TOKEN`), `success` in 25 s; 0 runners left afterwards.
-- Same-SHA `workflow_dispatch` (run 40591609063) on GitHub-hosted: reuse step hit, tests `skipped`, 8 s.
+- Same-SHA `workflow_dispatch` on GitHub-hosted: reuse step hit, tests `skipped`, 8 s.
 - `proj ready` again: "already ready ... CI is verified: not triggering another run".
-- `proj finish reverify --merge` merged exactly `7e475ebb75` -> `9122675`. Worktree removal was refused while
+- `proj finish reverify --merge` merged exactly `<sha>` -> `<sha>`. Worktree removal was refused while
   a shell sat inside it ("in use by another process ... nothing was removed"); re-running `proj finish`
   completed the cleanup.
-- Starter's own CI on `windows-latest` (run 40591692695, commit `b519bab`): 88/88 pass.
+- Starter's own CI on `windows-latest` : 88/88 pass.
 
 ## 7. Automated tests
 
-`npm test`: 88 tests, 88 pass, 0 fail (~30-70 s on this PC; also green on `windows-latest`). They cover bootstrap for 3 stacks, adopt and
+`npm test`: 88 tests, 88 pass, 0 fail (~30-70 s locally; also green on `windows-latest`). They cover bootstrap for 3 stacks, adopt and
 upgrade, task caps, duplicates and overlap (including 4 concurrent `proj task` runs), checkpoint/restore
 (partial commits, deletions), finish/clean safety (dirty, detached HEAD, ignored secrets, unmerged), corrupt
 state, hooks, offload exit codes and host pinning, test-tier selection (importers, fixtures, manifests), duplicate

@@ -102,3 +102,10 @@ describe('proj offload', { concurrency: true }, () => {
     assert.equal(transport({}), null);
   });
 });
+
+test('compute.command may be a string; anything else is a clear error, not a crash', async () => {
+  const { transport } = await import('../lib/checks.js');
+  assert.deepEqual(transport({ command: ' mybox  run ' }).argv, ['mybox', 'run']);
+  assert.deepEqual(transport({ command: ['mybox', 'run'] }).argv, ['mybox', 'run']);
+  assert.throws(() => transport({ command: 42 }), /compute\.command must be a list/);
+});

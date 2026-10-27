@@ -19,6 +19,15 @@ describe('profile inference', () => {
     ['A REST API in Go for warehouse inventory backed by Postgres', { kind: 'api', stack: 'generic', visual: false, database: true }],
     ['An iOS app that tracks running routes', { kind: 'mobile-app', visual: true }],
     ['A FastAPI backend that stores patient appointments', { kind: 'api', stack: 'python', visual: false, sensitive: ['pii'] }],
+    // review regressions: everyday words, "go", mixed stacks, plain "app", C#
+    ['A dashboard showing users per region', { kind: 'web-app', sensitive: [] }],
+    ['A health check CLI for servers', { kind: 'cli', sensitive: [] }],
+    ['A Django backend with a React frontend', { kind: 'web-app', stack: 'node', database: true }],
+    ['A website for a board game cafe', { kind: 'website', visual: true }],
+    ['A booking app for hair salons', { kind: 'web-app', visual: true }],
+    ['A Discord bot that posts daily stats', { sensitive: ['secrets'], visual: false }],
+    ['A C# desktop tool', { stack: 'generic' }],
+    ["Let's go build something", { stack: 'generic', kind: 'other', uncertain: ['kind', 'stack'] }],
   ];
   for (const [text, want] of cases) {
     test(text, () => {
@@ -38,6 +47,10 @@ describe('template rendering', () => {
     const t = 'A{{#x}} x{{/x}}{{^x}} not-x{{/x}}.\n{{#x}}\nline x\n{{#y}}\nline y\n{{/y}}\n{{/x}}\nend {{name}} ${{ github.sha }}\n';
     assert.equal(render(t, { x: true, y: false, name: 'n' }), 'A x.\nline x\nend n ${{ github.sha }}\n');
     assert.equal(render(t, { x: false, name: 'n' }), 'A not-x.\nend n ${{ github.sha }}\n');
+  });
+  test('an inline block never swallows a later line-level block of the same name; CRLF tag lines vanish', () => {
+    assert.equal(render('a{{#x}}1{{/x}}b\n{{#x}}\nkeep\n{{/x}}\nend\n', { x: false }), 'ab\nend\n');
+    assert.equal(render('a\r\n{{#x}}\r\nin\r\n{{/x}}\r\nb\r\n', { x: false }), 'a\r\nb\r\n');
   });
 });
 
@@ -62,7 +75,8 @@ describe('proj new tailors the foundation', { concurrency: true }, () => {
     const agents = read(p.dir, 'AGENTS.md');
     for (const s of ['## Sensitive areas: accounts and login, payments', '- Accounts:', '- Payments:', '## Database', '## Design', '/creative-director']) assert.ok(agents.includes(s), s);
     assert.doesNotMatch(agents, /- Personal data:|Task workflow/);
-    assert.deepEqual(JSON.parse(read(p.dir, '.proj.json')).profile, { kind: 'web-app', stack: 'node', visual: true, sensitive: ['auth', 'payments'], database: true, tasks: false });
+    assert.match(agents, /Every screen works at 390px/, 'kind-specific rule');
+    assert.deepEqual(JSON.parse(read(p.dir, '.proj.json')).profile, { description: MEALPLAN, kind: 'web-app', stack: 'node', visual: true, sensitive: ['auth', 'payments'], database: true, tasks: false });
     assert.equal((await run('npm', ['test'], { cwd: p.dir, shell: true })).code, 0, 'the generated tests pass');
   });
 
@@ -105,6 +119,10 @@ describe('proj new tailors the foundation', { concurrency: true }, () => {
       assert.equal(fm.effort, undefined, `${f} must not switch the session effort`);
     }
     for (const f of p.files) assert.doesNotMatch(read(p.dir, f), /\{\{[#^/]?\w+\}\}/, `${f} has an unrendered placeholder`);
+    // workflows run their own safe commands without prompting, on both of Claude Code's shells
+    const cd = frontmatter(read(p.dir, '.claude/skills/creative-director/SKILL.md'))['allowed-tools'];
+    assert.match(cd, /Bash\(proj shot \*\)/);
+    assert.match(cd, /PowerShell\(proj shot \*\)/);
   });
 
   test('a profile file (as written by the new-project skill) drives the result', async () => {
@@ -116,6 +134,25 @@ describe('proj new tailors the foundation', { concurrency: true }, () => {
     const dir = path.join(parent, 'admin');
     assert.ok(exists(dir, 'DESIGN.md') && exists(dir, '.claude/agents/security.md') && !exists(dir, '.claude/rules/database.md'));
     assert.match(read(dir, 'AGENTS.md'), /admin: Internal admin dashboard/);
+    assert.match(r.out, /Understood: web-app on node · visual/, 'a profile file is echoed like an inferred one');
+    const bad = await proj(['new', 'admin2', '--profile', file, '--kind', 'spaceship', '--no-remote', '--dir', parent], { cwd: parent, home: path.join(parent, 'home') });
+    assert.notEqual(bad.code, 0, 'flag overrides on a profile file are validated');
+    assert.ok(!exists(parent, 'admin2'));
+  });
+
+  test('adopt --upgrade keeps the description and what an older bootstrap installed', async () => {
+    const p = await create(['keeper', 'A Python command-line tool that cleans and validates CSV exports']);
+    const home = path.join(path.dirname(p.dir), 'home');
+    const pjFile = path.join(p.dir, '.proj.json');
+    const pj = JSON.parse(read(p.dir, '.proj.json'));
+    delete pj.profile; // as written by an older proj
+    fs.writeFileSync(pjFile, JSON.stringify(pj));
+    fs.mkdirSync(path.join(p.dir, '.claude', 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(p.dir, '.claude', 'agents', 'security.md'), 'x');
+    const r = await proj(['adopt', '--upgrade'], { cwd: p.dir, home });
+    assert.equal(r.code, 0, r.err);
+    assert.match(read(p.dir, 'AGENTS.md'), /keeper: A Python command-line tool/, 'description survives');
+    assert.deepEqual(JSON.parse(read(p.dir, '.proj.json')).profile.sensitive, ['secrets'], 'security reviewer kept');
   });
 
   test('adopt in a generated repo reads the stored profile and adds nothing', async () => {

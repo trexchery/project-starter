@@ -8,6 +8,10 @@ project facts live in `docs/BRIEF.md`, decisions in `docs/DECISIONS.md`{{#visual
 {{name}}: {{description}}
 
 Kind: {{kind}} · Stack: {{stack}}{{#security}} · Handles {{sensitiveList}}{{/security}}{{#database}} · Has a database{{/database}}
+{{#kindRule}}
+
+{{kindRule}}
+{{/kindRule}}
 
 ## Commands
 
