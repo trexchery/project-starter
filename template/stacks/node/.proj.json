@@ -1,0 +1,9 @@
+{
+  "stack": "node",
+  "checks": {
+    "affected": "node --test {tests}",
+    "full": "npm test",
+    "heavy": null
+  },
+  "testGlobs": ["test/**/*.test.js"]
+}

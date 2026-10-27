@@ -1,0 +1,9 @@
+{
+  "stack": "generic",
+  "checks": {
+    "affected": "pwsh -NoProfile -File scripts/check.ps1",
+    "full": "pwsh -NoProfile -File scripts/check.ps1",
+    "heavy": null
+  },
+  "testGlobs": []
+}

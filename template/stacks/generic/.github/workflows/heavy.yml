@@ -1,0 +1,29 @@
+name: Heavy
+# Expensive suites (security audit, E2E, mutation). Manual only: `proj check --heavy --ci --yes`
+# dispatches it after the owner approves the minutes.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit to verify
+        required: true
+
+concurrency:
+  group: heavy-${{ inputs.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  heavy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Record the exact SHA under test
+        run: echo "Verified SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: if [ -f scripts/heavy.ps1 ]; then pwsh -NoProfile -File scripts/heavy.ps1; fi

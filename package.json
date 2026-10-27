@@ -1,0 +1,10 @@
+{
+  "name": "project-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "proj: private repo bootstrap, tracked agent worktrees, exact-SHA verification, safe cleanup",
+  "type": "module",
+  "bin": { "proj": "bin/proj.js" },
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test --test-concurrency=4 test/" }
+}
