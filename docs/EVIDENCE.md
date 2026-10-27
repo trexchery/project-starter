@@ -62,10 +62,27 @@ Everything below was observed, not assumed. SHAs are exact.
   4 billed minutes -> "Keep the current setup" (sharding would cost more minutes for no CI wall-clock gain).
 - `proj finish ci-efficiency --merge` merged exactly `bc6ef6c6ab` -> `a90d120`.
 
-## 6. Automated tests
+## 6. Re-verification after the final adversarial review (PR #4)
 
-`npm test`: 83 tests, 83 pass, 0 fail (~40-70 s on this PC). They cover bootstrap for 3 stacks, adopt and
+The review hardened: opt-ins (compute, runners) read only from `~/.proj/config.json`; CI verdict and reuse keyed
+on the CI workflow's own runs (a job named `verify` elsewhere never counts); one concurrency group per PR;
+self-hosted routing excludes bot-authored PRs and bot branches; runner token passed on stdin; importer-aware,
+fail-closed test selection. Re-run live on the upgraded templates:
+
+- `proj ready --wait` on `7e475ebb75` ran `verify` on container runner `proj-docker-nicolas-10272201`
+  (`--cap-drop ALL`, `docker inspect` shows no `RUNNER_TOKEN`), `success` in 25 s; 0 runners left afterwards.
+- Same-SHA `workflow_dispatch` (run 40591609063) on GitHub-hosted: reuse step hit, tests `skipped`, 8 s.
+- `proj ready` again: "already ready ... CI is verified: not triggering another run".
+- `proj finish reverify --merge` merged exactly `7e475ebb75` -> `9122675`. Worktree removal was refused while
+  a shell sat inside it ("in use by another process ... nothing was removed"); re-running `proj finish`
+  completed the cleanup.
+- Starter's own CI on `windows-latest` (run 40591692695, commit `b519bab`): 88/88 pass.
+
+## 7. Automated tests
+
+`npm test`: 88 tests, 88 pass, 0 fail (~30-70 s on this PC; also green on `windows-latest`). They cover bootstrap for 3 stacks, adopt and
 upgrade, task caps, duplicates and overlap (including 4 concurrent `proj task` runs), checkpoint/restore
 (partial commits, deletions), finish/clean safety (dirty, detached HEAD, ignored secrets, unmerged), corrupt
-state, hooks, offload exit codes and host pinning, test-tier selection, duplicate prevention, JUnit
-profiling, billed-minute math, benchmarks, runner token handling and static checks on every CI template.
+state, hooks, offload exit codes and host pinning, test-tier selection (importers, fixtures, manifests), duplicate
+prevention (command-aware), CI verdicts (draft/ready races), JUnit profiling, billed-minute math, benchmarks
+(coverage-proven only), runner token handling, config opt-in isolation and static checks on every CI template.
