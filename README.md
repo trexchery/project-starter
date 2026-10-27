@@ -9,14 +9,27 @@ Zero dependencies: Node 22+, git, and `gh` (logged in) for the GitHub parts.
 
 ## Install
 
+Claude Code plugin: adds the `/project-starter:proj-audit` skill and puts `proj` on Claude's shell PATH.
+
+```text
+/plugin install project-starter --marketplace trexchery/project-starter
+```
+
+CLI for your own terminal (Windows, macOS, Linux):
+
 ```powershell
-gh repo clone trexchery/project-starter "$HOME\project-starter"
-npm install -g "$HOME\project-starter"     # links `proj` onto PATH; `proj self-update` pulls later
+npm install -g github:trexchery/project-starter    # `proj self-update` reinstalls later
 proj help
 ```
 
-If `proj` is not found afterwards, your npm prefix is not on PATH (`npm config get prefix`); install into
-the standard per-user folder instead: `npm install -g --prefix "$env:APPDATA\npm" "$HOME\project-starter"`.
+If `proj` is not found afterwards, your npm prefix is not on PATH (`npm config get prefix`). On Windows,
+install into the standard per-user folder instead: `npm install -g --prefix "$env:APPDATA\npm" github:trexchery/project-starter`.
+
+## Audit skill
+
+In any repo, `/project-starter:proj-audit` (or "audit this repo") runs `proj doctor`, `proj perf` and a
+`proj clean` dry run and answers with one next command and at most five findings.
+`/project-starter:proj-audit clean` also applies the safe cleanup. It never deletes anything else.
 
 ## Use
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // proj: bootstrap repos, run tracked agent worktrees, verify at exact SHAs, clean up safely.
-import { ProjError, STARTER_ROOT, HOME, git, out, loadConfig, repoContext } from '../lib/core.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { ProjError, STARTER_ROOT, HOME, git, sh, out, readJson, loadConfig, repoContext } from '../lib/core.js';
 import { cmdNew, cmdAdopt, protect } from '../lib/bootstrap.js';
 import { cmdTask, cmdStatus, cmdFinish, cmdCheckpoint, cmdResume, cmdReview, cmdHook } from '../lib/tasks.js';
 import { cmdCheck, cmdReady, cmdOffload } from '../lib/checks.js';
@@ -28,7 +30,7 @@ const HELP = `proj: project starter and agent task manager
   proj runner [status|start|use|clean] [--docker|--host|--ddc] [--dry-run]   ephemeral self-hosted CI runners
   proj finish [<slug>] [--merge | --abandon]
   proj offload ["<command>"]               show ddc availability, or run a command there
-  proj doctor [--all] [--report] [--deps] [--offline] [--schedule weekly|off]
+  proj doctor [--all] [--report] [--deps] [--offline] [--json] [--schedule weekly|off]
   proj clean [--apply]                     dry run unless --apply; never forces, never touches dirty work
   proj hook <session-start|pre-compact|session-end>   (called by Claude Code / Codex hooks)
   proj config | proj self-update | proj version`;
@@ -76,10 +78,20 @@ function main(argv) {
     case 'hook': return cmdHook(pos[0]);
     case 'config': return out(JSON.stringify({ home: HOME, starter: STARTER_ROOT, ...loadConfig(git(['rev-parse', '--show-toplevel']).out || undefined) }, null, 2));
     case 'self-update': {
-      const r = git(['pull', '--ff-only', '--quiet'], { cwd: STARTER_ROOT });
-      return out(r.code === 0 ? `project-starter at ${git(['rev-parse', '--short', 'HEAD'], { cwd: STARTER_ROOT }).out}` : `update failed: ${r.err}`);
+      // A git clone pulls; an `npm install -g github:...` copy reinstalls from the same repository.
+      if (fs.existsSync(path.join(STARTER_ROOT, '.git'))) {
+        const r = git(['pull', '--ff-only', '--quiet'], { cwd: STARTER_ROOT });
+        return out(r.code === 0 ? `project-starter at ${git(['rev-parse', '--short', 'HEAD'], { cwd: STARTER_ROOT }).out}` : `update failed: ${r.err}`);
+      }
+      const { repository } = readJson(path.join(STARTER_ROOT, 'package.json'), {});
+      process.exitCode = sh(`npm install -g ${repository}`);
+      return;
     }
-    case 'version': return out(git(['describe', '--always', '--dirty'], { cwd: STARTER_ROOT }).out);
+    case 'version': {
+      const { version } = readJson(path.join(STARTER_ROOT, 'package.json'), {});
+      const rev = git(['describe', '--always', '--dirty'], { cwd: STARTER_ROOT });
+      return out(rev.code === 0 ? `${version} (${rev.out})` : version);
+    }
     default: throw new ProjError(`unknown command "${cmd}" (proj help)`);
   }
 }
