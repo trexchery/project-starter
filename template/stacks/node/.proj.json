@@ -1,9 +1,16 @@
 {
   "stack": "node",
   "checks": {
-    "affected": "node --test {tests}",
-    "full": "npm test",
-    "heavy": null
+    "affected": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit} {tests}",
+    "full": "npm test -- --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit}",
+    "heavy": "npm audit --audit-level=high && npm run test:heavy --if-present"
   },
-  "testGlobs": ["test/**/*.test.js"]
+  "testGlobs": ["test/**/*.test.js"],
+  "bench": {
+    "runs": 3,
+    "setupSecs": 45,
+    "variants": { "serial": "node --test --test-concurrency=1 --test-reporter=junit --test-reporter-destination={junit}" },
+    "shardCmd": "node --test --test-shard={shard}/{shards} --test-reporter=junit --test-reporter-destination={junit}",
+    "shards": [2, 4]
+  }
 }

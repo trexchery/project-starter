@@ -1,6 +1,6 @@
 ---
 name: scout
-description: Cheap read-only lookups. Use for finding files, reading code, summarizing logs or diffs, and "where is X" questions.
+description: Cheap read-only lookups. Use for finding files, reading code, summarizing logs or diffs, and "where is X" questions. Never edits.
 tools: Read, Grep, Glob, Bash
 model: haiku
 effort: low

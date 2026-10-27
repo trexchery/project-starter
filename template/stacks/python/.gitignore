@@ -14,3 +14,11 @@ build/
 *.key
 .DS_Store
 Thumbs.db
+.aws/
+.ssh/
+*.tfvars
+*.tfstate*
+.npmrc
+.pypirc
+*credentials*.json
+*service-account*.json
