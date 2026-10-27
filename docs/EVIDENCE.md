@@ -1,6 +1,6 @@
 # Evidence: end-to-end run, 2026-10-27
 
-Disposable private repo: https://github.com/trexchery/proj-e2e-20261027 (created by `proj new`).
+Disposable private repo `trexchery/proj-e2e-20261027` (created by `proj new`; private, so its run links are not public).
 Everything below was observed, not assumed. SHAs are exact.
 
 ## 1. Bootstrap (`proj new proj-e2e-20261027 --stack node`)
@@ -53,7 +53,7 @@ Everything below was observed, not assumed. SHAs are exact.
 - CI reuse: a manual `workflow_dispatch` for the same SHA (run 40588241044) finished in 6 s; the reuse
   step hit and checkout, install, tests and upload were all `skipped`.
 - Ephemeral self-hosted runner: `proj runner use` + `proj runner start --docker`; the next push
-  (`bc6ef6c6ab`) ran `verify` on runner `proj-docker-nicolas-10272137` (labels self-hosted, proj-ephemeral),
+  (`bc6ef6c6ab`) ran `verify` on runner `proj-docker-<host>-10272137` (labels self-hosted, proj-ephemeral),
   `success` in 51 s and 0 billed minutes; afterwards the container was gone and 0 runners were registered.
 - `proj perf`: 7 billed minutes over 15 runs, per-job median/p95, costliest steps, and two concrete
   opportunities (timeout 15 min vs p95 under 1 min; minutes on cancelled runs). Dependabot's own update
@@ -69,7 +69,7 @@ on the CI workflow's own runs (a job named `verify` elsewhere never counts); one
 self-hosted routing excludes bot-authored PRs and bot branches; runner token passed on stdin; importer-aware,
 fail-closed test selection. Re-run live on the upgraded templates:
 
-- `proj ready --wait` on `7e475ebb75` ran `verify` on container runner `proj-docker-nicolas-10272201`
+- `proj ready --wait` on `7e475ebb75` ran `verify` on container runner `proj-docker-<host>-10272201`
   (`--cap-drop ALL`, `docker inspect` shows no `RUNNER_TOKEN`), `success` in 25 s; 0 runners left afterwards.
 - Same-SHA `workflow_dispatch` (run 40591609063) on GitHub-hosted: reuse step hit, tests `skipped`, 8 s.
 - `proj ready` again: "already ready ... CI is verified: not triggering another run".

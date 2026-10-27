@@ -2,8 +2,18 @@
   "name": "project-starter",
   "version": "0.1.0",
   "description": "Repo health audit and safe cleanup with the proj CLI: stale branches, orphaned worktrees, idle or failing PRs, duplicate issues, outdated dependencies, GitHub Actions minutes and CI cost hotspots.",
-  "author": { "name": "trexchery" },
+  "author": {
+    "name": "trexchery"
+  },
   "homepage": "https://github.com/trexchery/project-starter",
   "repository": "https://github.com/trexchery/project-starter",
-  "keywords": ["audit", "git", "worktrees", "cleanup", "github-actions", "ci-cost"]
+  "keywords": [
+    "audit",
+    "git",
+    "worktrees",
+    "cleanup",
+    "github-actions",
+    "ci-cost"
+  ],
+  "license": "MIT"
 }

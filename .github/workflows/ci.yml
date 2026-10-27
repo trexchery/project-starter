@@ -15,14 +15,18 @@ permissions:
 jobs:
   verify:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: |
           git config --global user.name ci
