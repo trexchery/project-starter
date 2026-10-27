@@ -1,7 +1,7 @@
 # Decision log
 
 Newest first. One entry per decision that changes direction, cost, security or public behaviour.
-Agents append proposals as `Status: proposed`; only the owner marks `accepted`.
+Status is `proposed` until the decision is made, then `accepted`.
 
 ## D1. Project bootstrapped from project-starter ({{date}})
 

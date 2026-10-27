@@ -2,7 +2,7 @@
   "stack": "node",
   "checks": {
     "affected": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit} {tests}",
-    "full": "npm test -- --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit}",
+    "full": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit}",
     "heavy": "npm audit --audit-level=high && npm run test:heavy --if-present"
   },
   "testGlobs": ["test/**/*.test.js"],

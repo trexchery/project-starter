@@ -12,4 +12,3 @@
 
 **Constraints:** runtime, hosting, budget, data rules, deadlines.
 
-**Owner decisions pending:** list them here; agents do not decide them.
