@@ -1,0 +1,33 @@
+name: Heavy
+# Expensive suites (security audit, E2E, mutation). Manual only: `proj check --heavy --ci --yes`
+# dispatches it after the owner approves the minutes.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit to verify
+        required: true
+
+concurrency:
+  group: heavy-${{ inputs.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  heavy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Record the exact SHA under test
+        run: echo "Verified SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - run: python -m pip install -e ".[test]" pip-audit
+      - run: pip-audit
+      - run: if [ -d tests/heavy ]; then python -m pytest -q tests/heavy; fi

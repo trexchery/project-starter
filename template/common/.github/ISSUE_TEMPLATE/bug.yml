@@ -1,0 +1,15 @@
+name: Bug
+description: Something does not work as intended
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: Expected vs actual, exact error text. }
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Commit SHA or version }

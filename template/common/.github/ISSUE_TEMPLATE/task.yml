@@ -1,0 +1,15 @@
+name: Task
+description: A bounded piece of work with a clear done condition
+labels: [task]
+body:
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: What changes and why. }
+    validations: { required: true }
+  - type: textarea
+    id: done
+    attributes: { label: Done when, description: Observable result and the test that proves it. }
+    validations: { required: true }
+  - type: input
+    id: scope
+    attributes: { label: Files or areas in scope, description: Used to detect overlapping work. }

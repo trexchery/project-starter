@@ -1,0 +1,9 @@
+{
+  "stack": "python",
+  "checks": {
+    "affected": "python -m pytest -q {tests}",
+    "full": "python -m pytest -q",
+    "heavy": null
+  },
+  "testGlobs": ["tests/**/test_*.py"]
+}
