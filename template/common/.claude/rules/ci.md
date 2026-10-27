@@ -8,5 +8,5 @@ minutes) and the `ready_for_review` type; skip at job level, never with `on.path
 wait forever). Checkout uses the exact head SHA. Keep the "Reuse a passing result for this exact SHA" step,
 the job-level `concurrency` block, the self-hosted `runs-on` guard (same-repo, non-Dependabot PRs or manual
 dispatch only) and the required job name `verify`. `workflow_dispatch`-only workflows (Heavy) need no draft
-guard. Timeouts follow `proj perf` (about twice the observed p95). Add caching or sharding only with
-`proj bench` evidence.
+guard. Timeouts stay near twice the observed p95 run time. Add caching or sharding only with measured
+evidence that time and CI minutes both improve.
