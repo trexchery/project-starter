@@ -439,3 +439,10 @@ describe('CI verdict for an exact SHA', () => {
     assert.equal(verdict([run(5, null, { status: 'in_progress' })], 'verify', 'abc').state, 'pending');
   });
 });
+
+test('analyzeRuns: Dependabot update jobs (event dynamic) bill nothing', async () => {
+  const { analyzeRuns } = await import('../lib/perf.js');
+  const job = { name: 'Dependabot', conclusion: 'success', started_at: '2026-10-27T10:00:00Z', completed_at: '2026-10-27T10:03:00Z', labels: ['ubuntu-latest'], steps: [] };
+  assert.equal(analyzeRuns([{ id: 1, name: 'npm_and_yarn', event: 'dynamic', head_sha: 'a', jobs: [job] }]).totalBilled, 0);
+  assert.equal(analyzeRuns([{ id: 2, name: 'CI', event: 'pull_request', head_sha: 'a', jobs: [job] }]).totalBilled, 3);
+});
