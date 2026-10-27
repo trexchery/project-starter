@@ -201,7 +201,12 @@ describe('final review: strict profiles, fail-closed generic check, verified pus
     assert.match(none.err + none.out, /NOT VERIFIED/);
     const file = path.join(p.dir, 'scripts', 'check.ps1');
     const original = read(p.dir, 'scripts/check.ps1');
-    const withTest = (cmd) => fs.writeFileSync(file, original.replace('$tests = @(\n', `$tests = @(\n  '${cmd}'\n`));
+    // check.ps1 is checked out with CRLF on CI (.gitattributes: *.ps1 eol=crlf) and may be LF locally.
+    const withTest = (cmd) => {
+      const next = original.replace(/^\$tests = @\(\r?\n/m, (m) => `${m}  '${cmd}'\n`);
+      assert.notEqual(next, original, 'test command inserted');
+      fs.writeFileSync(file, next);
+    };
     withTest('pwsh -NoProfile -Command exit 7');
     assert.equal((await pwsh(p.dir)).code, 7, 'a failing test fails the check');
     withTest('pwsh -NoProfile -Command exit 0');
