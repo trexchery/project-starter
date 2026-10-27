@@ -1,0 +1,14 @@
+{
+  "name": "project-starter",
+  "owner": {
+    "name": "trexchery"
+  },
+  "description": "proj: private repo bootstrap, tracked agent worktrees, exact-SHA verification, cheap CI and repo health audits.",
+  "plugins": [
+    {
+      "name": "project-starter",
+      "source": "./",
+      "description": "Repo health audit and safe cleanup with the proj CLI."
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Puts `proj` on the PATH of Claude Code's shell while the plugin is enabled (no npm install needed).
+exec node "$(dirname "$0")/proj.js" "$@"

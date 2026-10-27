@@ -4,6 +4,7 @@
   "private": true,
   "description": "proj: private repo bootstrap, tracked agent worktrees, exact-SHA verification, safe cleanup",
   "type": "module",
+  "repository": "github:trexchery/project-starter",
   "bin": { "proj": "bin/proj.js" },
   "engines": { "node": ">=22" },
   "scripts": { "test": "node --test --test-concurrency=4 \"test/**/*.test.js\"" }
