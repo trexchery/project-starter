@@ -25,6 +25,7 @@ export function run(cmd, args, { cwd, env, input = '', shell = false } = {}) {
     p.stderr.on('data', (d) => { err += d; });
     p.on('error', reject);
     p.on('close', (code) => resolve({ code, out: out.trimEnd(), err: err.trim() }));
+    p.stdin.on('error', () => {}); // the child may exit before reading stdin (EPIPE on Linux)
     p.stdin.end(input);
   });
 }
