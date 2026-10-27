@@ -9,8 +9,9 @@ project facts live in `docs/BRIEF.md`, decisions in `docs/DECISIONS.md`.
 
 ## Commands
 
-- Affected tests: `proj check` · full suite: `proj check --full` · state: `proj status`
-- Expensive suites (E2E, mutation, audits): `proj check --heavy`, or on a running ddc box with `--remote`.
+- Change-aware tests: `proj check` · full suite: `proj check --full` · state: `proj status`
+- Expensive suites (if `checks.heavy` is set in `.proj.json`): `proj check --heavy`, or `--remote` on an
+  approved, already running ddc box. Timings and waste: `proj perf`. Measure before optimizing: `proj bench`.
 
 ## Start of every session (read-only preflight)
 
@@ -36,25 +37,37 @@ project facts live in `docs/BRIEF.md`, decisions in `docs/DECISIONS.md`.
 - Report each deliverable as implemented / tested / reviewed / CI-verified / released
   (`proj status` shows these). Never round up.
 
-## Delegation (Claude Code subagents in `.claude/agents/`)
+## Delegation and model routing
 
-| Work | Agent | Model, effort |
-| --- | --- | --- |
-| Find files, read, summarize logs, mechanical edits | `scout` | haiku, low |
-| Implement a scoped change with tests | `implementer` | sonnet, medium |
-| Review a diff for bugs | `reviewer` | sonnet, high |
-| Architecture; debugging that failed once | `deep` | opus, high |
-| Auth, secrets, money, permissions, untrusted input | `security` | opus, high |
-
+Route each piece of work by complexity, risk, dependencies and cost; re-route as the work changes.
+- Cheapest tier, read-only: lookups, file search, log and diff summaries.
+- Standard tier: scoped implementation with tests, diff review.
+- Strongest tier, high effort: architecture, security-sensitive code (auth, secrets, money,
+  permissions, untrusted input), and debugging that already failed once at a cheaper tier.
 - Fewer than ~5 tool calls: do it yourself. Parallelize only independent work, within the task cap.
-- After a failed attempt, escalate one tier instead of retrying at the same tier.
+- Escalate one tier after a failed attempt instead of retrying at the same tier; drop back down after.
 - Give reviewers the diff and the goal, not your conclusion. One reviewer per risk, not several
-  identical ones. Do not re-run a check that already passed at the same SHA.
+  identical ones. Never re-run a check that already passed at the same SHA.
+- Tool mappings: `.claude/agents/` + `.claude/rules/delegation.md` (Claude Code), `.codex/agents/` (Codex).
+
+## CI and test efficiency
+
+- During development run the change-aware tier (`proj check`). It falls back to the full suite when
+  impact is uncertain (manifests, config, shared test helpers, unmapped files); never narrow it by hand.
+- Run the full suite, and heavy suites if configured, once on the final reviewable SHA, locally or on
+  approved compute, before `proj ready`. CI then runs once on that SHA; never re-trigger a SHA that
+  passed (`proj` and the CI reuse step refuse to). Keep PRs as drafts until then: drafts cost nothing.
+- Never skip, weaken or bypass a required check, and never disable database durability, security
+  checks or test isolation for speed. Change parallelism, sharding, caching or database setup only
+  with `proj bench` evidence that wall-clock time and billed minutes both hold or improve.
+- Watch `proj perf` for slow files, regressions, duplicate runs and oversized timeouts.
+- Self-hosted runners only through `proj runner` (ephemeral, private repos, owner-approved). Never put
+  production secrets on a runner or run code from forks or bots on a personal machine.
 
 ## Owner approval required (ask, then wait)
 
 Merging (`proj finish --merge --yes`), marking ready (`proj ready --yes` starts paid CI),
-dispatching CI, pushing anything except your own task branch, force pushes, deleting branches or
+dispatching CI, registering runners (`proj runner ... --yes`), pushing anything except your own task branch, force pushes, deleting branches or
 repos, changing GitHub settings, production deploys, credentials, paid infrastructure (including
 `ddc start/scale`), anything financial, and destructive data changes. Decisions marked `proposed`
 in `docs/DECISIONS.md` are the owner's to accept.

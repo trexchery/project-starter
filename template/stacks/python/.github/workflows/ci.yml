@@ -1,32 +1,69 @@
 name: CI
-# Drafts cost nothing: the job below is skipped before any runner starts. Marking the PR ready
-# (ready_for_review) runs it for real, on the exact head SHA. A skipped check is NOT a pass:
-# `proj ready` and `proj status` count only conclusion=success for the head SHA.
+# Cost rules (details: AGENTS.md, `proj perf`):
+# - Drafts spend nothing: the job is skipped before a runner starts; ready_for_review runs it on the head SHA.
+#   A skipped check is NOT a pass: proj counts only conclusion=success for the exact head SHA.
+# - One full run per SHA: a later trigger for a SHA that already passed reuses that result. New commits
+#   on a PR cancel the superseded run; a manual dispatch for the same branch queues instead of duplicating.
+# - Self-hosted (optional): repo variable PROJ_RUNS_ON (`proj runner use`) routes only same-repo,
+#   non-Dependabot PRs and owner dispatches to ephemeral runners; everything else stays GitHub-hosted.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
-
-concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+    inputs:
+      force:
+        description: Run the full suite even if this SHA already passed
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  checks: read
 
 jobs:
   verify:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    concurrency:
+      group: ci-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ vars.PROJ_RUNS_ON != '' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')) && fromJSON(vars.PROJ_RUNS_ON) || 'ubuntu-latest' }}
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v5
+      # One full run per SHA: if this exact commit already passed "verify", report that instead of re-testing.
+      - name: Reuse a passing result for this exact SHA
+        id: reuse
+        if: ${{ !inputs.force }}
+        uses: actions/github-script@v9
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        with:
+          script: |
+            const { data } = await github.rest.checks.listForRef({ ...context.repo, ref: process.env.SHA, check_name: 'verify', filter: 'all', per_page: 100 });
+            const prior = data.check_runs.find((c) => c.conclusion === 'success' && c.app?.slug === 'github-actions' && !c.details_url?.includes(`/runs/${context.runId}/`));
+            if (prior) { core.setOutput('hit', 'true'); await core.summary.addRaw(`Reused the passing run for ${process.env.SHA}: ${prior.html_url}`).write(); }
+      - uses: actions/checkout@v7
+        if: steps.reuse.outputs.hit != 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Record the exact SHA under test
+        if: steps.reuse.outputs.hit != 'true'
         run: echo "Verified SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
+        if: steps.reuse.outputs.hit != 'true'
         with: { python-version: "3.12" }
       - run: python -m pip install -e ".[test]"
-      - run: python -m pytest -q
+        if: steps.reuse.outputs.hit != 'true'
+      - run: python -m pytest -q --junitxml=junit.xml
+        if: steps.reuse.outputs.hit != 'true'
+      # Per-test-file durations for `proj perf` (tiny artifact, kept 7 days).
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.reuse.outputs.hit != 'true'
+        with:
+          name: test-timings-${{ github.run_id }}
+          path: junit.xml
+          if-no-files-found: ignore
+          retention-days: 7

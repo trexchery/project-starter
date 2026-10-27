@@ -5,6 +5,8 @@ import { cmdNew, cmdAdopt, protect } from '../lib/bootstrap.js';
 import { cmdTask, cmdStatus, cmdFinish, cmdCheckpoint, cmdResume, cmdReview, cmdHook } from '../lib/tasks.js';
 import { cmdCheck, cmdReady, cmdOffload } from '../lib/checks.js';
 import { cmdDoctor, cmdClean } from '../lib/maint.js';
+import { cmdPerf, cmdBench } from '../lib/perf.js';
+import { cmdRunner } from '../lib/runner.js';
 
 const HELP = `proj: project starter and agent task manager
 
@@ -17,9 +19,13 @@ const HELP = `proj: project starter and agent task manager
   proj checkpoint [--next ".."] [--decision ".."] [--blocker ".."] [--clear-blockers] [--push]
   proj resume [<slug>] [--restore]         print the handoff; --restore recreates a lost worktree
   proj review [--verdict pass|fail] [--by who] [--note ..]   record a review at the exact SHA
-  proj check [--full|--heavy] [--remote]   affected tests by default; --remote uses a running ddc box
-  proj check --heavy --ci --yes            dispatch the Heavy workflow for this SHA (Actions minutes)
-  proj ready [--yes] [--wait]              full suite passed at SHA -> push, PR ready -> CI on that SHA
+  proj check [--full|--heavy] [--remote] [--again]   change-aware tier by default (fails closed to full);
+                                           a tier that already passed at this clean SHA is not rerun
+  proj check --heavy --ci --yes            dispatch the Heavy workflow for this pushed SHA (once per SHA)
+  proj ready [--yes] [--wait]              full (+heavy) passed at SHA -> push, PR ready -> CI once on that SHA
+  proj perf [--runs 20] [--json]           per-file, job, workflow durations, billed minutes, waste, timeouts
+  proj bench [--runs 3] [--setup 45]       measure variants/shards (wall + billed minutes) before adopting
+  proj runner [status|start|use|clean] [--docker|--host|--ddc] [--yes]   ephemeral self-hosted CI runners
   proj finish [<slug>] [--merge --yes | --abandon --yes]
   proj offload ["<command>"]               show ddc availability, or run a command there
   proj doctor [--all] [--report] [--deps] [--offline] [--schedule weekly|off]
@@ -31,7 +37,8 @@ Outward actions (merge, mark ready, dispatch CI, change GitHub settings) need --
 with the owner's approval for this action.`;
 
 const BOOL = new Set(['dry-run', 'no-remote', 'yes', 'upgrade', 'all', 'json', 'offline', 'push', 'restore', 'full', 'heavy',
-  'remote', 'ci', 'wait', 'merge', 'abandon', 'report', 'deps', 'apply', 'quiet', 'clear-blockers', 'allow-overlap', 'verbose', 'help']);
+  'remote', 'ci', 'wait', 'merge', 'abandon', 'report', 'deps', 'apply', 'quiet', 'clear-blockers', 'allow-overlap', 'verbose', 'help',
+  'again', 'docker', 'host', 'ddc', 'hosted']);
 
 export function parse(argv) {
   const opts = {}; const pos = [];
@@ -66,6 +73,9 @@ function main(argv) {
     case 'offload': return cmdOffload(pos.join(' '), opts);
     case 'doctor': return cmdDoctor(opts);
     case 'clean': return cmdClean(opts);
+    case 'perf': return cmdPerf(opts);
+    case 'bench': return cmdBench(opts);
+    case 'runner': return cmdRunner(pos[0], opts);
     case 'hook': return cmdHook(pos[0]);
     case 'config': return out(JSON.stringify({ home: HOME, starter: STARTER_ROOT, ...loadConfig(git(['rev-parse', '--show-toplevel']).out || undefined) }, null, 2));
     case 'self-update': {

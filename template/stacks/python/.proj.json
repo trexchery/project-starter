@@ -1,9 +1,10 @@
 {
   "stack": "python",
   "checks": {
-    "affected": "python -m pytest -q {tests}",
-    "full": "python -m pytest -q",
+    "affected": "python -m pytest -q --junitxml={junit} {tests}",
+    "full": "python -m pytest -q --junitxml={junit}",
     "heavy": null
   },
-  "testGlobs": ["tests/**/test_*.py"]
+  "testGlobs": ["tests/**/test_*.py"],
+  "bench": { "runs": 3, "setupSecs": 60, "variants": {} }
 }
