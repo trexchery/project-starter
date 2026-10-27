@@ -60,7 +60,7 @@ describe('safety regressions', { concurrency: true }, () => {
     await git(w, 'checkout', '-q', '--detach');
     write(w, 'orphan.txt', 'only here\n');
     const lost = await commitAll(w, 'detached work');
-    const r = await repo.proj(['finish', 'det', '--abandon', '--yes']);
+    const r = await repo.proj(['finish', 'det', '--abandon']);
     assert.notEqual(r.code, 0);
     assert.match(r.err, /detached/);
     assert.ok(fs.existsSync(path.join(w, '.git')), 'worktree kept');
@@ -77,7 +77,7 @@ describe('safety regressions', { concurrency: true }, () => {
     write(w, '.gitignore', '.env\n');
     await commitAll(w, 'ignore env');
     write(w, '.env', 'API_KEY=hunter2\n');
-    const r = await repo.proj(['finish', 'sec', '--abandon', '--yes']);
+    const r = await repo.proj(['finish', 'sec', '--abandon']);
     assert.notEqual(r.code, 0);
     assert.match(r.err, /ignored files that removal would delete: .*\.env/);
     assert.equal(read(w, '.env'), 'API_KEY=hunter2\n');

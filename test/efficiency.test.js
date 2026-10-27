@@ -22,7 +22,9 @@ describe('selectTests (fail-closed change-aware tier)', { concurrency: true }, (
 
   test('none when nothing or only docs changed', () => {
     assert.equal(selectTests(cfg, tracked, []).mode, 'none');
-    assert.equal(selectTests(cfg, tracked, ['README.md', 'docs/guide.md', 'img/logo.png']).mode, 'none');
+    assert.equal(selectTests(cfg, tracked, ['README.md', 'docs/guide.md', 'docs/img/logo.png', 'CHANGELOG.md']).mode, 'none');
+    // assets, fixtures and text files outside docs may be read by code or tests: fail closed
+    for (const f of ['img/logo.png', 'src/templates/mail.txt', 'tests/fixtures/golden.txt']) assert.equal(selectTests(cfg, tracked, [f]).mode, 'full', f);
   });
 
   test('full for global-impact files, even next to a mapped source change', () => {
@@ -276,19 +278,25 @@ describe('bench: estimate and recommend', { concurrency: true }, () => {
     assert.equal(recommend([{ ...base, ok: false }, failing]), null);
   });
 
-  test('CLI: proj bench picks the faster passing variant and appends bench.jsonl', async () => {
-    const repo = await makeRepo({ projJson: {
-      checks: { full: 'node -e "setTimeout(()=>{},1500)"' },
-      bench: { variants: { fast: 'node -e "setTimeout(()=>{},50)"', broken: 'node -e "process.exit(1)"' } },
+  test('CLI: proj bench picks the faster passing variant with proven equal coverage and appends bench.jsonl', async () => {
+    const J = '--test-reporter=junit --test-reporter-destination={junit}';
+    const slow = "import { test } from 'node:test';\ntest('t', () => new Promise((r) => setTimeout(r, 700)));\n";
+    const repo = await makeRepo({ files: { 'test/a.test.js': slow, 'test/b.test.js': slow, 'package.json': '{"type":"module"}' }, projJson: {
+      checks: { full: `node --test --test-concurrency=1 ${J}` },
+      bench: { variants: {
+        fast: `node --test --test-concurrency=2 ${J}`,         // same 2 tests, in parallel
+        lossy: `node --test ${J} test/a.test.js`,               // faster but drops a test: never recommended
+        unproven: 'node -e "1"',                                // no junit: coverage unknown, never recommended
+        broken: 'node -e "process.exit(1)"',
+      } },
     } });
-    fs.mkdirSync(path.join(repo.root, '.git', 'proj'), { recursive: true }); // see the todo below
     const r = await repo.proj(['bench', '--runs', '1', '--setup', '0']);
     assert.equal(r.code, 0, r.out + r.err);
     assert.match(r.out, /Measured winner: fast/);
     const [rec] = lines(path.join(repo.root, '.git', 'proj', 'bench.jsonl'));
     assert.equal(rec.best, 'fast');
     assert.equal(rec.setupSecs, 0);
-    assert.deepEqual(rec.results.map((x) => [x.name, x.ok]), [['baseline', true], ['fast', true], ['broken', false]]);
+    assert.deepEqual(rec.results.map((x) => [x.name, x.ok, x.tests]), [['baseline', true, 2], ['fast', true, 2], ['lossy', true, 1], ['unproven', true, null], ['broken', false, null]]);
     assert.equal(rec.sha, await git(repo.root, 'rev-parse', 'HEAD'));
   });
 
@@ -360,19 +368,20 @@ describe('runner', { concurrency: true }, () => {
     assert.equal(s.match(/--token\s+(\S+)/g).length, 1);
     assert.match(s, /--ephemeral/);
     assert.match(s, /unset RUNNER_TOKEN/);
-    assert.match(s, /timeout 1800 \.\/run\.sh/);
+    assert.match(s, /timeout --kill-after=30 1800 \.\/run\.sh/);
+    assert.match(s, /IFS= read -r RUNNER_TOKEN/, 'token arrives on stdin');
     assert.ok(s.startsWith('set -e;'));
   });
 
   test('runner start refuses a non-GitHub origin and touches nothing', async () => {
     const repo = await makeRepo();
     for (const mode of ['--docker', '--host', '--ddc']) {
-      const r = await repo.proj(['runner', 'start', mode, '--yes']);
+      const r = await repo.proj(['runner', 'start', mode]);
       assert.notEqual(r.code, 0, mode);
       assert.match(r.err, /origin is not a GitHub repository/);
     }
     await git(repo.root, 'remote', 'set-url', 'origin', 'https://github.com/acme/widget.git');
-    const off = await repo.proj(['runner', 'start', '--docker', '--yes']);
+    const off = await repo.proj(['runner', 'start', '--docker']);
     assert.notEqual(off.code, 0);
     assert.match(off.err, /cannot read the repository/);
     assert.equal(fs.existsSync(path.join(repo.root, '.git', 'proj')), false);
@@ -398,7 +407,8 @@ describe('CI templates (static)', { concurrency: true }, () => {
       assert.ok(list.length > reuse + 1);
       for (const s of list.slice(reuse + 1)) assert.match(s, /\n {8}if: .*steps\.reuse\.outputs\.hit != 'true'/, s.split('\n')[0]);
       const runsOn = text.match(/^ {4}runs-on: (.*)$/m)[1];
-      assert.match(runsOn, /github\.actor != 'dependabot\[bot\]'/);
+      assert.match(runsOn, /!endsWith\(github\.event\.pull_request\.user\.login, '\[bot\]'\)/, 'no bot-authored PR on self-hosted');
+      assert.match(runsOn, /!startsWith\(github\.ref_name, 'dependabot\/'\)/, 'no dispatch of bot branches on self-hosted');
       assert.match(runsOn, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
       const co = list.find((s) => /uses: actions\/checkout@/.test(s));
       assert.match(co, /persist-credentials: false/);
@@ -421,22 +431,23 @@ describe('CI templates (static)', { concurrency: true }, () => {
 });
 
 describe('CI verdict for an exact SHA', () => {
-  const run = (id, conclusion, extra = {}) => ({ id, name: 'verify', head_sha: 'abc', app: { slug: 'github-actions' }, status: 'completed', conclusion, started_at: '2026-10-27T10:00:00Z', html_url: `u${id}`, ...extra });
+  const run = (id, conclusion, extra = {}) => ({ id, head_sha: 'abc', status: 'completed', conclusion, run_started_at: '2026-10-27T10:00:00Z', html_url: `u${id}`, ...extra });
   test('a draft-stage skip with a higher id does not hide the real success', async () => {
     const { verdict } = await import('../lib/tasks.js');
-    assert.equal(verdict([run(1, 'success'), run(2, 'skipped')], 'verify', 'abc').state, 'verified');
+    assert.equal(verdict([run(1, 'success'), run(2, 'skipped')], 'abc').state, 'verified');
   });
   test('skipped alone is never verified; cancelled and failure are reported as such', async () => {
     const { verdict } = await import('../lib/tasks.js');
-    assert.equal(verdict([run(2, 'skipped')], 'verify', 'abc').state, 'skipped');
-    assert.equal(verdict([run(1, 'success'), run(3, 'failure')], 'verify', 'abc').state, 'failure');
-    assert.equal(verdict([run(4, 'cancelled')], 'verify', 'abc').state, 'cancelled');
+    assert.equal(verdict([run(2, 'skipped')], 'abc').state, 'skipped');
+    assert.equal(verdict([run(1, 'success'), run(3, 'failure')], 'abc').state, 'failure');
+    assert.equal(verdict([run(4, 'cancelled')], 'abc').state, 'cancelled');
   });
-  test('other SHAs, other apps, other names and pre-ready runs do not count', async () => {
+  test('other SHAs never count; since drops only older skipped runs; in-progress is pending', async () => {
     const { verdict } = await import('../lib/tasks.js');
-    const runs = [run(1, 'success', { head_sha: 'zzz' }), run(2, 'success', { app: { slug: 'some-bot' } }), run(3, 'success', { name: 'lint' }), run(4, 'success', { started_at: '2026-10-27T09:00:00Z' })];
-    assert.equal(verdict(runs, 'verify', 'abc', '2026-10-27T09:30:00Z').state, 'none');
-    assert.equal(verdict([run(5, null, { status: 'in_progress' })], 'verify', 'abc').state, 'pending');
+    assert.equal(verdict([run(1, 'success', { head_sha: 'zzz' })], 'abc').state, 'none');
+    assert.equal(verdict([run(2, 'skipped', { run_started_at: '2026-10-27T09:00:00Z' })], 'abc', '2026-10-27T09:30:00Z').state, 'none');
+    assert.equal(verdict([run(3, 'success', { run_started_at: '2026-10-27T09:00:00Z' })], 'abc', '2026-10-27T09:30:00Z').state, 'verified');
+    assert.equal(verdict([run(5, null, { status: 'in_progress' })], 'abc').state, 'pending');
   });
 });
 

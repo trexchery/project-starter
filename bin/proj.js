@@ -33,7 +33,7 @@ const HELP = `proj: project starter and agent task manager
   proj hook <session-start|pre-compact|session-end>   (called by Claude Code / Codex hooks)
   proj config | proj self-update | proj version`;
 
-const BOOL = new Set(['dry-run', 'no-remote', 'yes', 'upgrade', 'all', 'json', 'offline', 'push', 'restore', 'full', 'heavy',
+const BOOL = new Set(['dry-run', 'no-remote', 'upgrade', 'all', 'json', 'offline', 'push', 'restore', 'full', 'heavy',
   'remote', 'ci', 'wait', 'merge', 'abandon', 'report', 'deps', 'apply', 'quiet', 'clear-blockers', 'allow-overlap', 'verbose', 'help',
   'again', 'docker', 'host', 'ddc', 'hosted']);
 

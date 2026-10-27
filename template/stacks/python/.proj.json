@@ -1,8 +1,8 @@
 {
   "stack": "python",
   "checks": {
-    "affected": "python -m pytest -q --junitxml={junit} {tests}",
-    "full": "python -m pytest -q --junitxml={junit}",
+    "affected": "python -m pytest -q -o junit_family=xunit1 --junitxml={junit} {tests}",
+    "full": "python -m pytest -q -o junit_family=xunit1 --junitxml={junit}",
     "heavy": null
   },
   "testGlobs": ["tests/**/test_*.py"],
