@@ -12,7 +12,7 @@ const HELP = `proj: project starter and agent task manager
 
   proj new <name> [--stack node|python|generic] [--description ".."] [--dir <parent>] [--no-remote] [--dry-run]
   proj adopt [--dry-run] [--upgrade]       add missing starter files to this repo; never overwrites
-  proj protect [--yes]                     squash-only, Dependabot, default-branch ruleset (plan-aware)
+  proj protect [--dry-run]                 squash-only, Dependabot, default-branch ruleset (plan-aware)
 
   proj task <slug> --goal ".." [--issue N] [--files "src/x/**"]   new tracked worktree (cap: maxAgents)
   proj status [--all] [--json] [--offline] implemented / tested / reviewed / CI-verified / released per task
@@ -21,20 +21,17 @@ const HELP = `proj: project starter and agent task manager
   proj review [--verdict pass|fail] [--by who] [--note ..]   record a review at the exact SHA
   proj check [--full|--heavy] [--remote] [--again]   change-aware tier by default (fails closed to full);
                                            a tier that already passed at this clean SHA is not rerun
-  proj check --heavy --ci --yes            dispatch the Heavy workflow for this pushed SHA (once per SHA)
-  proj ready [--yes] [--wait]              full (+heavy) passed at SHA -> push, PR ready -> CI once on that SHA
+  proj check --heavy --ci                  dispatch the Heavy workflow for this pushed SHA (once per SHA)
+  proj ready [--wait]                      full (+heavy) passed at SHA -> push, PR ready -> CI once on that SHA
   proj perf [--runs 20] [--json]           per-file, job, workflow durations, billed minutes, waste, timeouts
   proj bench [--runs 3] [--setup 45]       measure variants/shards (wall + billed minutes) before adopting
-  proj runner [status|start|use|clean] [--docker|--host|--ddc] [--yes]   ephemeral self-hosted CI runners
-  proj finish [<slug>] [--merge --yes | --abandon --yes]
+  proj runner [status|start|use|clean] [--docker|--host|--ddc] [--dry-run]   ephemeral self-hosted CI runners
+  proj finish [<slug>] [--merge | --abandon]
   proj offload ["<command>"]               show ddc availability, or run a command there
   proj doctor [--all] [--report] [--deps] [--offline] [--schedule weekly|off]
   proj clean [--apply]                     dry run unless --apply; never forces, never touches dirty work
   proj hook <session-start|pre-compact|session-end>   (called by Claude Code / Codex hooks)
-  proj config | proj self-update | proj version
-
-Outward actions (merge, mark ready, dispatch CI, change GitHub settings) need --yes: pass it only
-with the owner's approval for this action.`;
+  proj config | proj self-update | proj version`;
 
 const BOOL = new Set(['dry-run', 'no-remote', 'yes', 'upgrade', 'all', 'json', 'offline', 'push', 'restore', 'full', 'heavy',
   'remote', 'ci', 'wait', 'merge', 'abandon', 'report', 'deps', 'apply', 'quiet', 'clear-blockers', 'allow-overlap', 'verbose', 'help',

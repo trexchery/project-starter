@@ -5,7 +5,7 @@ name: CI
 # - One full run per SHA: a later trigger for a SHA that already passed reuses that result. New commits
 #   on a PR cancel the superseded run; a manual dispatch for the same branch queues instead of duplicating.
 # - Self-hosted (optional): repo variable PROJ_RUNS_ON (`proj runner use`) routes only same-repo,
-#   non-Dependabot PRs and owner dispatches to ephemeral runners; everything else stays GitHub-hosted.
+#   non-Dependabot PRs and manual dispatches to ephemeral runners; everything else stays GitHub-hosted.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]

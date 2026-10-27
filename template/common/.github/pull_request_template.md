@@ -11,7 +11,3 @@
 ## Risk and rollback
 
 <!-- What could break, how to undo. "None" is a valid answer. -->
-
-## Owner decisions needed
-
-<!-- None, or the exact question. -->

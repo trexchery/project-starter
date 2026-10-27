@@ -11,7 +11,7 @@ project facts live in `docs/BRIEF.md`, decisions in `docs/DECISIONS.md`.
 
 - Change-aware tests: `proj check` · full suite: `proj check --full` · state: `proj status`
 - Expensive suites (if `checks.heavy` is set in `.proj.json`): `proj check --heavy`, or `--remote` on an
-  approved, already running ddc box. Timings and waste: `proj perf`. Measure before optimizing: `proj bench`.
+  enabled, already running ddc box. Timings and waste: `proj perf`. Measure before optimizing: `proj bench`.
 
 ## Start of every session (read-only preflight)
 
@@ -26,7 +26,6 @@ project facts live in `docs/BRIEF.md`, decisions in `docs/DECISIONS.md`.
 - Stay inside the task's declared files. Need more scope or a second deliverable? Say so and stop.
 - One canonical PR per deliverable: `proj checkpoint --push` opens it as a draft (no CI minutes)
   and later pushes update it. Never open a second PR for the same work.
-- Fix routine engineering problems yourself (failing tests, lint, conflicts in your own branch).
 - Concurrency is capped (default 3 tasks, 3 open PRs). If `proj task` refuses, finish work first.
 
 ## Evidence
@@ -55,22 +54,14 @@ Route each piece of work by complexity, risk, dependencies and cost; re-route as
 - During development run the change-aware tier (`proj check`). It falls back to the full suite when
   impact is uncertain (manifests, config, shared test helpers, unmapped files); never narrow it by hand.
 - Run the full suite, and heavy suites if configured, once on the final reviewable SHA, locally or on
-  approved compute, before `proj ready`. CI then runs once on that SHA; never re-trigger a SHA that
+  available external compute (`--remote`), before `proj ready`. CI then runs once on that SHA; never re-trigger a SHA that
   passed (`proj` and the CI reuse step refuse to). Keep PRs as drafts until then: drafts cost nothing.
 - Never skip, weaken or bypass a required check, and never disable database durability, security
   checks or test isolation for speed. Change parallelism, sharding, caching or database setup only
   with `proj bench` evidence that wall-clock time and billed minutes both hold or improve.
 - Watch `proj perf` for slow files, regressions, duplicate runs and oversized timeouts.
-- Self-hosted runners only through `proj runner` (ephemeral, private repos, owner-approved). Never put
+- Self-hosted runners only through `proj runner` (ephemeral, private repos only). Never put
   production secrets on a runner or run code from forks or bots on a personal machine.
-
-## Owner approval required (ask, then wait)
-
-Merging (`proj finish --merge --yes`), marking ready (`proj ready --yes` starts paid CI),
-dispatching CI, registering runners (`proj runner ... --yes`), pushing anything except your own task branch, force pushes, deleting branches or
-repos, changing GitHub settings, production deploys, credentials, paid infrastructure (including
-`ddc start/scale`), anything financial, and destructive data changes. Decisions marked `proposed`
-in `docs/DECISIONS.md` are the owner's to accept.
 
 ## Security
 

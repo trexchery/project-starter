@@ -64,20 +64,20 @@ describe('check, status, finish, clean', { concurrency: true }, () => {
     const repo = await makeRepo();
     const t = await taskWithCommit(repo, 'a');
     write(t.w, 'wip.txt', 'unfinished\n');
-    const dirty = await repo.proj(['finish', 'a', '--abandon', '--yes']);
+    const dirty = await repo.proj(['finish', 'a', '--abandon']);
     assert.equal(dirty.code, 1);
     assert.match(dirty.err, /uncommitted changes/);
     assert.equal(read(t.w, 'wip.txt'), 'unfinished\n');
 
     fs.rmSync(path.join(t.w, 'wip.txt'));
-    for (const args of [['finish', 'a', '--abandon', '--yes'], ['finish', '--abandon', '--yes']]) {
+    for (const args of [['finish', 'a', '--abandon'], ['finish', '--abandon']]) {
       const inside = await proj(args, { cwd: t.w, home: repo.home });
       assert.equal(inside.code, 1, args.join(' '));
       assert.match(inside.err, /outside the worktree/);
     }
     const sub = path.join(t.w, 'sub');
     fs.mkdirSync(sub);
-    assert.equal((await proj(['finish', 'a', '--abandon', '--yes'], { cwd: sub, home: repo.home })).code, 1, 'a subdirectory is inside too');
+    assert.equal((await proj(['finish', 'a', '--abandon'], { cwd: sub, home: repo.home })).code, 1, 'a subdirectory is inside too');
     assert.ok(exists(t.w, 'a.txt'));
     assert.equal(repo.state().tasks.a.status, 'active');
 
@@ -87,15 +87,10 @@ describe('check, status, finish, clean', { concurrency: true }, () => {
     assert.ok(exists(t.w, 'a.txt'));
   });
 
-  test('finish --abandon needs --yes, then keeps the branch and archives it', async () => {
+  test('finish --abandon keeps the branch and archives it', async () => {
     const repo = await makeRepo();
     const t = await taskWithCommit(repo, 'a');
-    const no = await repo.proj(['finish', 'a', '--abandon']);
-    assert.equal(no.code, 1);
-    assert.match(no.err, /--yes/);
-    assert.ok(exists(t.w, 'a.txt'));
-
-    const r = await repo.proj(['finish', 'a', '--abandon', '--yes']);
+    const r = await repo.proj(['finish', 'a', '--abandon']);
     assert.equal(r.code, 0, r.err);
     assert.ok(!exists(t.w));
     assert.equal(await git(repo.root, 'rev-parse', 'refs/heads/task/a'), t.sha, 'branch kept at its tip');

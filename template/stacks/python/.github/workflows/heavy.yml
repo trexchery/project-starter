@@ -1,7 +1,7 @@
 name: Heavy
 run-name: Heavy ${{ inputs.sha }}
-# Expensive suites (audits, E2E, mutation). Manual only, once per SHA: `proj check --heavy --ci --yes`
-# dispatches it after the owner approves the minutes; prefer running them locally or on approved compute first.
+# Expensive suites (audits, E2E, mutation). Manual only, once per SHA: `proj check --heavy --ci` dispatches
+# it for a pushed SHA; prefer running them locally or on available external compute first.
 on:
   workflow_dispatch:
     inputs:

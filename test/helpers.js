@@ -14,7 +14,7 @@ const globalCfg = path.join(SCRATCH, 'gitconfig');
 fs.writeFileSync(globalCfg, '');
 export const ENV = { ...process.env, PROJ_OFFLINE: '1', GIT_CONFIG_GLOBAL: globalCfg, GIT_CEILING_DIRECTORIES: SCRATCH,
   GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' };
-for (const k of ['CLAUDE_SESSION_ID', 'PROJ_DEBUG', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete ENV[k];
+for (const k of ['CLAUDE_SESSION_ID', 'PROJ_DEBUG', 'NODE_TEST_CONTEXT', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete ENV[k];
 
 // Async so tests inside a { concurrency: true } describe really run in parallel.
 export function run(cmd, args, { cwd, env, input = '', shell = false } = {}) {
