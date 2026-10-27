@@ -29,6 +29,21 @@ test('proj-audit skill: frontmatter, triggers and the safety contract', () => {
   assert.match(text, /never touches dirty/);
 });
 
+test('every shipped skill: valid frontmatter, no model or effort override, no destructive pre-approval', () => {
+  const dir = path.join(ROOT, 'skills');
+  const names = fs.readdirSync(dir);
+  assert.deepEqual(names.sort(), ['new-project', 'proj-audit']);
+  for (const n of names) {
+    const text = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+    const fm = Object.fromEntries(text.split('---\n')[1].trim().split('\n').map((l) => [l.slice(0, l.indexOf(':')), l.slice(l.indexOf(':') + 1).trim()]));
+    assert.equal(fm.name, n);
+    assert.ok(fm.description && fm.description.length <= 1536, `${n} description`);
+    assert.equal(fm.model, undefined, `${n} must not switch the owner's model`);
+    assert.equal(fm.effort, undefined, `${n} must not switch the owner's effort`);
+    assert.doesNotMatch(fm['allowed-tools'] || '', /--apply|--force|-D\b|rm /, `${n} pre-approves something destructive`);
+  }
+});
+
 test('bin/proj shim delegates to proj.js', () => {
   assert.match(fs.readFileSync(path.join(ROOT, 'bin', 'proj'), 'utf8'), /exec node "\$\(dirname "\$0"\)\/proj\.js" "\$@"/);
 });

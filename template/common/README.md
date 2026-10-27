@@ -4,12 +4,12 @@
 
 ## Develop
 
-```powershell
-proj task <slug> --goal "what changes"   # isolated worktree for one deliverable
-proj check                               # affected tests; --full before ready
-proj checkpoint --push                   # back up work, open/update the draft PR (no CI minutes)
-proj ready                               # PR ready: CI verifies the exact SHA, once
-proj finish <slug> --merge               # squash-merge that verified SHA, clean up
+```text
+{{testCmd}}
 ```
 
-Brief: [docs/BRIEF.md](docs/BRIEF.md) · Decisions: [docs/DECISIONS.md](docs/DECISIONS.md) · Agents: [AGENTS.md](AGENTS.md)
+Work on a branch, open a draft pull request, mark it ready when the full suite passes on the final commit
+(CI runs once per commit, only on ready pull requests).{{#tasks}} The optional `proj` helper automates this:
+`proj task <slug>`, `proj ready`, `proj finish <slug> --merge`.{{/tasks}}
+
+Brief: [docs/BRIEF.md](docs/BRIEF.md) · Decisions: [docs/DECISIONS.md](docs/DECISIONS.md){{#visual}} · Design: [DESIGN.md](DESIGN.md){{/visual}} · Agents: [AGENTS.md](AGENTS.md)

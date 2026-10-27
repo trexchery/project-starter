@@ -41,41 +41,5 @@
       "PowerShell(gh api * -X DELETE*)",
       "PowerShell(gh api * --method DELETE*)"
     ]
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|compact|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "proj hook session-start",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "proj hook pre-compact",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "proj hook session-end",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
   }
 }

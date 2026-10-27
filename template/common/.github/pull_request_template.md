@@ -5,7 +5,7 @@
 ## Evidence
 
 - Head SHA verified: `<sha>`
-- Local: `proj check` result (command + pass/fail)
+- Local: `{{testCmd}}` result (command + pass/fail)
 - CI: verified at the same SHA (skipped is not verified)
 
 ## Risk and rollback
