@@ -2,8 +2,9 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
-import { proj, git, tmpDir, exists, read, run } from './helpers.js';
+import { proj, git, tmpDir, exists, read, run, ROOT } from './helpers.js';
 import { inferProfile, flagOverrides } from '../lib/profile.js';
 import { render } from '../lib/bootstrap.js';
 import { findBrowser } from '../lib/design.js';
@@ -171,4 +172,109 @@ test('proj shot renders a page with the local browser', { skip: !findBrowser() &
   const png = fs.readFileSync(path.join(dir, 'p.png'));
   assert.equal(png.subarray(1, 4).toString(), 'PNG');
   assert.equal(png.readUInt32BE(16), 320, 'width');
+});
+
+describe('final review: strict profiles, fail-closed generic check, verified push', { concurrency: true }, () => {
+  const profileRun = async (profile) => {
+    const parent = tmpDir('strict-');
+    const file = path.join(parent, 'p.json');
+    fs.writeFileSync(file, JSON.stringify(profile));
+    const r = await proj(['new', 'x', '--profile', file, '--no-remote', '--dir', parent], { cwd: parent, home: path.join(parent, 'home') });
+    return { r, created: exists(parent, 'x') };
+  };
+  for (const bad of [{ visual: 'false' }, { database: 'true' }, { tasks: 1 }, { sensitive: 'auth' }, { sensitive: [true] }, { kind: ['cli'] }]) {
+    test(`a profile with ${JSON.stringify(bad)} is refused, nothing is created`, async () => {
+      const { r, created } = await profileRun({ description: 'x', kind: 'cli', stack: 'node', ...bad });
+      assert.notEqual(r.code, 0);
+      assert.match(r.err, /must be/);
+      assert.equal(created, false);
+    });
+  }
+
+  const pwsh = (cwd) => run('pwsh', ['-NoProfile', '-File', 'scripts/check.ps1'], { cwd });
+  test('the generic placeholder check fails closed until a real test command is listed', async (t) => {
+    if ((await run('pwsh', ['-NoProfile', '-Command', 'exit 0'])).code !== 0) return t.skip('no PowerShell 7 here');
+    const p = await create(['gadget', 'A Rust service that ingests telemetry from field sensors']);
+    assert.match(p.out, /check\.ps1 fails on purpose/);
+    const none = await pwsh(p.dir);
+    assert.equal(none.code, 2, 'placeholder must not pass');
+    assert.match(none.err + none.out, /NOT VERIFIED/);
+    const file = path.join(p.dir, 'scripts', 'check.ps1');
+    const original = read(p.dir, 'scripts/check.ps1');
+    const withTest = (cmd) => fs.writeFileSync(file, original.replace('$tests = @(\n', `$tests = @(\n  '${cmd}'\n`));
+    withTest('pwsh -NoProfile -Command exit 7');
+    assert.equal((await pwsh(p.dir)).code, 7, 'a failing test fails the check');
+    withTest('pwsh -NoProfile -Command exit 0');
+    const ok = await pwsh(p.dir);
+    assert.equal(ok.code, 0, ok.err);
+    assert.match(ok.out, /checks passed/);
+  });
+
+  test('--no-protect is accepted; the skill pushes, compares the remote SHA, then protects', async () => {
+    const p = await create(['shipped', 'A small TypeScript library for structured logging', '--no-protect']);
+    const skill = fs.readFileSync(path.join(ROOT, 'skills', 'new-project', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+    const step5 = skill.slice(skill.indexOf('## 5.'), skill.indexOf('## 6.'));
+    const order = ['git commit', 'git push origin main', 'git rev-parse HEAD', 'git ls-remote origin refs/heads/main', 'proj protect'];
+    const at = order.map((c) => step5.indexOf(c));
+    assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), `step 5 runs ${order.join(' -> ')} in order`);
+    assert.match(skill, /proj new <name> "<description>" --kind <kind> .* --no-protect/, 'profile passed as flags: no temp file to write or delete');
+    assert.match(skill, /no `&&` chains, no `git -C`/);
+    const allowed = frontmatter(skill)['allowed-tools'];
+    for (const c of ['npm test', 'git add -A', 'git push origin main', 'git rev-parse HEAD', 'git ls-remote origin *', 'proj protect']) {
+      assert.ok(allowed.includes(`Bash(${c})`) && allowed.includes(`PowerShell(${c})`), `${c} pre-approved on both shells`);
+    }
+
+    // The flow itself, against a local bare remote: create -> push -> tailor -> commit -> push -> remote == HEAD.
+    const bare = path.join(path.dirname(p.dir), 'remote.git');
+    await git(path.dirname(p.dir), 'init', '-q', '--bare', '-b', 'main', bare);
+    await git(p.dir, 'remote', 'add', 'origin', bare);
+    await git(p.dir, 'push', '-q', '-u', 'origin', 'main');
+    fs.appendFileSync(path.join(p.dir, 'docs', 'BRIEF.md'), '\nUsers: library authors.\n');
+    await git(p.dir, 'add', '-A');
+    await git(p.dir, 'commit', '-q', '-m', 'docs: tailor brief and agent instructions');
+    await git(p.dir, 'push', '-q', 'origin', 'main');
+    const remoteSha = (await git(p.dir, 'ls-remote', 'origin', 'refs/heads/main')).split(/\s/)[0];
+    assert.equal(remoteSha, await git(p.dir, 'rev-parse', 'HEAD'), 'remote head is the tailored commit');
+
+    // A refused push (what a protected main does) leaves the remote behind, and the comparison catches it.
+    fs.writeFileSync(path.join(bare, 'hooks', 'pre-receive'), '#!/bin/sh\necho "protected branch" >&2\nexit 1\n', { mode: 0o755 });
+    fs.appendFileSync(path.join(p.dir, 'docs', 'BRIEF.md'), 'More.\n');
+    await git(p.dir, 'commit', '-q', '-am', 'docs: more');
+    await git(p.dir, 'push', '-q', 'origin', 'main').catch(() => {});
+    const after = (await git(p.dir, 'ls-remote', 'origin', 'refs/heads/main')).split(/\s/)[0];
+    assert.notEqual(after, await git(p.dir, 'rev-parse', 'HEAD'), 'a rejected push is detected, not reported as shipped');
+  });
+});
+
+test('Creative Director: behaviour checks are conditional and the static path is unchanged', () => {
+  const cd = fs.readFileSync(path.join(ROOT, 'template', 'modules', 'visual', '.claude', 'skills', 'creative-director', 'SKILL.md'), 'utf8');
+  assert.match(cd, /### Behaviour checks \(only when the product needs them\)/);
+  assert.match(cd, /Static screenshots are enough for most products/);
+  for (const s of ['--width 1440 --height 900', '--width 390 --height 844', 'index.html#error', '--delay 2000', '#reduced-motion', 'measured once screens exist', 'reported as not verified'])
+    assert.ok(cd.includes(s), s);
+  assert.match(frontmatter(cd)['allowed-tools'], /^Bash\(proj shot \*\), PowerShell\(proj shot \*\)/, 'no new tools pre-approved');
+});
+
+// First pixel of a PNG: row 0 has no row above, so every PNG filter leaves its first pixel's bytes as stored.
+const firstPixel = (file) => {
+  const png = fs.readFileSync(file); const idat = [];
+  for (let o = 8; o < png.length;) { const len = png.readUInt32BE(o); if (png.toString('ascii', o + 4, o + 8) === 'IDAT') idat.push(png.subarray(o + 8, o + 8 + len)); o += 12 + len; }
+  return [...zlib.inflateSync(Buffer.concat(idat)).subarray(1, 4)].join(',');
+};
+
+test('proj shot captures interaction states (#hash) and settled motion (--delay), at desktop and phone width', { skip: !findBrowser() && 'no Chrome/Edge/Chromium here' }, async () => {
+  const dir = tmpDir('states-');
+  fs.writeFileSync(path.join(dir, 'p.html'), `<!doctype html><body style="margin:0;background:rgb(255,0,0)"><script>
+if (location.hash === '#on') document.body.style.background = 'rgb(0,0,255)';
+setTimeout(() => { if (!location.hash) document.body.style.background = 'rgb(0,128,0)'; }, 1500);</script>`);
+  const shot = async (target, ...extra) => {
+    const r = await proj(['shot', path.join(dir, target), path.join(dir, 'o.png'), ...extra], { cwd: dir });
+    assert.equal(r.code, 0, r.err);
+    return firstPixel(path.join(dir, 'o.png'));
+  };
+  for (const size of [['--width', '800', '--height', '300'], ['--width', '390', '--height', '300']]) {
+    assert.equal(await shot('p.html', ...size), '255,0,0', 'default state');
+    assert.equal(await shot('p.html#on', ...size), '0,0,255', 'hash state');
+    assert.equal(await shot('p.html', ...size, '--delay', '3000'), '0,128,0', 'after the timer settles');
+  }
 });

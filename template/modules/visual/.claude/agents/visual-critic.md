@@ -12,3 +12,6 @@ Score each from 1 to 5 with one line of evidence: fit to audience and brief; vis
 typography; color and contrast (estimate text contrast, flag anything likely below 4.5:1); spacing and alignment;
 consistency with DESIGN.md (if approved); mobile layout; distinctiveness. Then list the three changes that would
 improve it most, most important first, each concrete enough to implement. Never edit files.
+
+Only when you are given state, motion or budget material, also check it: each state is distinct and readable, focus
+is visible, the reduced-motion frame keeps the meaning, and nothing visible obviously threatens the stated budget.
