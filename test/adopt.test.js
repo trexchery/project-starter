@@ -38,7 +38,7 @@ describe('proj adopt', { concurrency: true }, () => {
     const before = tree(repo.root);
     const second = await repo.proj(['adopt']);
     assert.equal(second.code, 0, second.err);
-    assert.match(second.out, /^add 0,/);
+    assert.match(second.out, /^add 0,/m);
     const after = tree(repo.root);
     assert.deepEqual(Object.keys(after).filter((f) => !f.startsWith('.git')).sort(), Object.keys(before).filter((f) => !f.startsWith('.git')).sort());
     for (const f of Object.keys(before)) if (!f.startsWith('.git') && f !== '.proj.json') assert.equal(after[f], before[f], f);
@@ -49,7 +49,7 @@ describe('proj adopt', { concurrency: true }, () => {
     const before = tree(repo.root);
     const r = await repo.proj(['adopt', '--dry-run']);
     assert.equal(r.code, 0, r.err);
-    assert.match(r.out, /^would add \d+/);
+    assert.match(r.out, /^would add \d+/m);
     assert.match(r.out, /git config would set: pull\.ff, fetch\.prune/);
     assert.deepEqual(tree(repo.root), before);
     assert.ok(!exists(repo.home), 'PROJ_HOME untouched');

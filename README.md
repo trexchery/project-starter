@@ -1,102 +1,100 @@
 # project-starter
 
-`proj`: a Windows-first CLI plus a repo template for private projects worked on by several AI agents at once.
-It bootstraps hardened private repos, gives each agent a tracked worktree, keeps handoffs that survive
-crashes, verifies work at exact commit SHAs, runs CI once per SHA (drafts cost nothing), profiles and
-benchmarks test cost, optionally runs CI on ephemeral self-hosted runners, and cleans up without ever forcing.
+Describe what you are building; get a repository set up the way a careful senior engineer would set it up for
+you: tailored to the project, ready for AI coding agents, cheap to run in CI, and protected on GitHub.
 
-Zero dependencies: Node 22+, git, and `gh` (logged in) for the GitHub parts.
+```powershell
+proj new mealplan "A web app where families plan weekly meals and pay a monthly subscription with Stripe"
+```
+
+```text
+Understood: web-app on node · visual (Creative Director kit) · security reviewer for auth, payments
+```
 
 ## Install
 
-Claude Code plugin: adds the `/project-starter:proj-audit` skill and puts `proj` on Claude's shell PATH.
+In Claude Code (adds the `new-project` skill and puts `proj` on Claude's shell PATH):
 
 ```text
 /plugin install project-starter --marketplace trexchery/project-starter
 ```
 
-CLI for your own terminal (Windows, macOS, Linux):
+Then say "start a new project: …" or run `/project-starter:new-project`. Claude asks at most three questions,
+creates the repository, and fills in the brief and project-specific rules from your conversation.
+
+For your own terminal (Windows, macOS, Linux; Node 22+, git, and `gh` for GitHub):
 
 ```powershell
-npm install -g github:trexchery/project-starter    # `proj self-update` reinstalls later
-proj help
+npm install -g github:trexchery/project-starter
+proj new <name> "what you are building"
 ```
 
-If `proj` is not found afterwards, your npm prefix is not on PATH (`npm config get prefix`). On Windows,
-install into the standard per-user folder instead: `npm install -g --prefix "$env:APPDATA\npm" github:trexchery/project-starter`.
+On Windows, if `proj` is not found afterwards, install into the per-user npm folder:
+`npm install -g --prefix "$env:APPDATA\npm" github:trexchery/project-starter`.
 
-## Audit skill
+## What a project gets
 
-In any repo, `/project-starter:proj-audit` (or "audit this repo") runs `proj doctor`, `proj perf` and a
-`proj clean` dry run and answers with one next command and at most five findings.
-`/project-starter:proj-audit clean` also applies the safe cleanup. It never deletes anything else.
+Every project:
 
-## Use
+- the stack's skeleton with a passing test for node and python; for other languages a placeholder check that the
+  `new-project` skill replaces with the real toolchain;
+- `AGENTS.md` as the single source of truth for every agent, and `CLAUDE.md` importing it;
+- subagents that pick their own model and effort: `scout` (haiku, low), `implementer` (sonnet, medium),
+  `reviewer` (sonnet, high), `deep` (opus, high), with matching Codex agents;
+- CI that costs nothing on draft pull requests and runs once per commit when one is marked ready;
+- Dependabot, issue and PR templates, `docs/BRIEF.md`, `docs/DECISIONS.md`, LF line endings, safe git defaults;
+- a private GitHub repository with squash-only merges and a ruleset that requires the CI check (skip with
+  `--no-remote`).
 
-```powershell
-proj new my-app --stack node --description "what it is"   # private repo, settings, ruleset, CI, agent files
-cd my-app
-proj task login-form --goal "email+password form" --files "src/auth/**" --issue 12
-cd ..\my-app.worktrees\login-form
-proj check                       # change-aware tier (falls back to full when impact is uncertain)
-proj checkpoint --push --next "wire submit handler"   # backup + draft PR (CI skipped: 0 minutes)
-proj check --full                # full suite, recorded against the exact SHA (never rerun for that SHA)
-proj ready --wait                # push, mark ready, CI runs once on that SHA, wait for the verdict
-cd ..\..\my-app
-proj finish login-form --merge   # squash-merge that exact verified SHA, remove worktree, archive branch
-proj status                      # implemented / tested / reviewed / CI-verified / released per task
-proj doctor --all --report       # stale branches, orphaned worktrees, idle PRs, failing CI, duplicate issues, minutes
-proj clean                       # dry run; `--apply` to act
-proj perf                        # per-file/job/workflow durations, billed minutes, waste, timeout advice
-proj bench                       # measure parallelism/sharding variants (wall + billed minutes) first
-proj runner use; proj runner start --docker   # optional: CI on an ephemeral, isolated runner
-```
+Only when it fits:
 
-Existing repo: `proj adopt --dry-run`, then `proj adopt` (adds missing files, never overwrites), then
-`proj protect --dry-run`, then `proj protect`. Later template improvements:
-`proj adopt --upgrade` refreshes only the starter files you never edited.
-
-## What each part guarantees
-
-| Area | Behaviour |
+| The description mentions | The project also gets |
 | --- | --- |
-| Bootstrap | `git init -b main`, per-repo git config (`pull.ff=only`, `fetch.prune`, `rerere`, `zdiff3`, `core.longpaths`), `.gitattributes` LF, secret-file refusal, private repo, squash-only merges, branch auto-delete, Dependabot alerts + security updates, ruleset `proj-default` (PR required, required check `verify` up to date, no force push/deletion) |
-| Plan-aware protection | GitHub enforces rulesets on private repos only on paid plans. `proj protect` records `enforced`, `plan-gated` or `accepted-not-reported`; either way `proj ready`/`proj finish` refuse to merge anything not verified at the exact SHA |
-| Agent files | `AGENTS.md` (shared source of truth), `CLAUDE.md` = `@AGENTS.md`, `.claude/settings.json` (secret-read and force/destructive-git denies, hooks), `.claude/agents/` + `.claude/rules/delegation.md` model routing (haiku → sonnet → opus), `.claude/rules/ci.md` scoped rule, `.codex/hooks.json` + `.codex/agents/` |
-| Tasks | `proj task` creates a locked worktree on `task/<slug>`, refuses beyond `maxAgents` (3) or `maxOpenPRs` (3), refuses duplicate slugs, issues and open PRs, and refuses overlapping `--files` scopes unless `--allow-overlap` |
-| Recovery | `proj checkpoint` (and the Claude/Codex hooks on session start, compaction, session end) snapshots uncommitted + untracked work into `refs/proj/checkpoints/<slug>` without touching files, and writes a compact handoff into the shared git dir. `proj resume --restore` rebuilds a deleted worktree and re-applies that work |
-| CI cost | Jobs are skipped on drafts (no runner, 0 minutes) and run on `ready_for_review` at the head SHA. One full run per SHA: a reuse step reports an earlier pass for the same SHA instead of re-testing, `proj ready`/`check --ci` refuse to re-trigger, superseded PR runs are cancelled and same-branch dispatches queue. Heavy suites are `workflow_dispatch` only. A skipped check is never shown as verified |
-| Test tiers | `proj check` picks tests from changed files and fails closed to the full suite on manifests, lockfiles, CI/config, shared helpers or unmapped files. `proj ready` needs the full suite (and `checks.heavy` when set) passed on the clean final SHA, locally or with `--remote` |
-| Profiling | Every check records duration and per-test-file JUnit timings (`.git/proj/profile.jsonl`); CI uploads `junit.xml` for 7 days. `proj perf` adds job/step durations, billed minutes (OS multipliers; self-hosted and Dependabot free), duplicate and cancelled-run waste, regressions and timeout advice |
-| Benchmarks | `proj bench` runs `checks.full`, `bench.variants` and `bench.shardCmd` x `bench.shards`, estimates CI wall-clock and billed minutes (per-job setup, rounding), rejects variants that fail or lose tests, and recommends only one that is faster without raising billed minutes beyond `bench.maxExtraBilled` (25%) |
-| Self-hosted CI | Optional. `proj runner use` sets repo variable `PROJ_RUNS_ON`; the CI guard sends only same-repo, non-Dependabot PRs and manual dispatches there. `proj runner start --docker` registers a one-job runner in a capped container (no host mounts, token via env); `--host` needs `runner.allowHost`; `--ddc` uses an already running box. Private repos only. `proj runner use --hosted` switches back |
-| External compute | `proj check --remote` / `proj offload` use an already running `ddc` dev box only when `compute.enabled` is set, the host key is pinned, and no secret-looking file would ship. Runtime and workers are capped. It never starts, scales or extends a box |
-| Cleanup | `proj clean` is a dry run by default. It deletes only provably merged branches (ancestor, merged PR with identical head, or content already in base), archives each under `refs/proj-archive/` first, never touches dirty, locked, recently active or unmerged work, and never passes `--force` |
+| screens: a web app, website, mobile app or game | the Creative Director kit: `/creative-director` skill, `design-researcher` and `visual-critic` agents, `DESIGN.md`, UI rules |
+| accounts, payments, personal data or stored keys | a `security` reviewer agent, rules scoped to auth and payment code, and a "Sensitive areas" section |
+| a database | migration and test-isolation rules scoped to schema code |
+| `--tasks` | session hooks and the optional task workflow ([utilities](docs/UTILITIES.md)) |
 
-## Configuration
+A command-line tool or library gets no design files; a project without sensitive data gets no security
+reviewer. `proj new` prints what it understood and why; flags override it (`--visual`, `--no-visual`,
+`--sensitive auth,payments`, `--database`, `--stack python`), and `--profile file.json` sets everything exactly.
 
-Built-in defaults, then `~/.proj/config.json`, then the repo's `.proj.json` (committed). `proj config` prints the
-effective values.
+## Your model stays yours
 
-```json
-{
-  "owner": null, "visibility": "private", "defaultStack": "node",
-  "maxAgents": 3, "maxOpenPRs": 3, "staleDays": 21, "activeHours": 6,
-  "baseBranch": "main", "requiredCheck": "verify",
-  "ci": { "monthlyMinutes": 2000, "warnAt": 0.8 },
-  "compute": { "enabled": false, "ddc": ["ddc"], "maxRuntimeMin": 30, "maxWorkers": 8 },
-  "runner": { "allowHost": false, "cpus": 4, "memory": "8g", "maxMinutes": 60 },
-  "heavyBeforeReady": true,
-  "checks": { "affected": "node --test {tests}", "full": "npm test", "heavy": null },
-  "testGlobs": ["test/**/*.test.js"],
-  "bench": { "runs": 3, "setupSecs": 45, "variants": {}, "shardCmd": null, "shards": [2, 4] }
-}
+Nothing in a generated project sets the main session's model, reasoning effort, or Ultracode and workflow use:
+those stay your choice. Each subagent declares its own model and effort, and `AGENTS.md` tells agents to route
+cheap work to cheap tiers and escalate only after a failed attempt.
+
+## Creative Director (visual projects only)
+
+`/creative-director` researches references, renders three deliberately different directions as real pages with
+desktop and mobile screenshots (`proj shot`), has `visual-critic` review them without seeing the designer's
+reasoning, and stops for your choice. Only then does it write `DESIGN.md` (tokens, components, accessibility),
+which every later UI change is checked against.
+
+See [docs/EXAMPLES.md](docs/EXAMPLES.md) for four generated projects and a real Creative Director run with its
+screenshots.
+
+## Existing repositories
+
+```powershell
+proj adopt --dry-run     # what it would add, based on what the repo looks like
+proj adopt               # adds missing pieces, never overwrites a file
+proj adopt --upgrade     # later: refresh starter files you never edited
+proj protect             # squash-only merges, Dependabot, ruleset
 ```
 
-`proj doctor --schedule weekly` registers a Windows scheduled task (`proj-doctor`, Mondays 09:00) that writes
-reports to `~/.proj/reports/`. `--schedule off` removes it.
+## Optional utilities
 
-## Develop proj
+Task worktrees with crash recovery, exact-commit verification, CI cost profiling and benchmarks, self-hosted
+runners, remote compute, and repo health audits are available but never required: see
+[docs/UTILITIES.md](docs/UTILITIES.md). `proj help` lists every command.
 
-`npm test` runs the suite (temp repos, local bare remotes, a fake `ddc`; no network). See `docs/EVIDENCE.md`
-for the end-to-end run against a disposable private GitHub repository.
+## Develop
+
+`npm test` runs the suite (temp repos, local bare remotes, no network) in under a minute on Windows and Linux.
+`node scripts/gen-workflows.mjs` regenerates the stacks' CI workflows from one source.
+
+## License
+
+MIT

@@ -1,19 +1,21 @@
 {
   "name": "project-starter",
   "version": "0.1.0",
-  "description": "Repo health audit and safe cleanup with the proj CLI: stale branches, orphaned worktrees, idle or failing PRs, duplicate issues, outdated dependencies, GitHub Actions minutes and CI cost hotspots.",
+  "description": "Start new projects from a plain-language idea: a tailored, agent-ready repository (tests, cheap CI, GitHub protections, AGENTS.md, specialist subagents, security and design kits only where they fit), plus a repo health audit.",
   "author": {
-    "name": "trexchery"
+    "name": "project-starter contributors"
   },
   "homepage": "https://github.com/trexchery/project-starter",
   "repository": "https://github.com/trexchery/project-starter",
   "keywords": [
-    "audit",
-    "git",
-    "worktrees",
-    "cleanup",
+    "new-project",
+    "bootstrap",
+    "scaffold",
+    "agents",
+    "claude-code",
+    "codex",
     "github-actions",
-    "ci-cost"
+    "design"
   ],
   "license": "MIT"
 }

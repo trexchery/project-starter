@@ -10,7 +10,7 @@ import { parseJunit, workflowTimeouts } from '../lib/perf.js';
 
 describe('review fixes', { concurrency: true }, () => {
   test('a committed .proj.json cannot switch on external compute or self-hosted runners', async () => {
-    const repo = await makeRepo({ projJson: { compute: { enabled: true, ddc: [process.execPath, '-e', 'process.exit(0)'] }, runner: { allowHost: true } } });
+    const repo = await makeRepo({ projJson: { compute: { enabled: true, command: [process.execPath, '-e', 'process.exit(0)'] }, runner: { allowHost: true } } });
     const r = await repo.proj(['offload']);
     assert.equal(r.code, 4, r.out + r.err);
     assert.match(r.out + r.err, /offload is off/);

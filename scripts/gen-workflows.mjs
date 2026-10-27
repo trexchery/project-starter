@@ -30,7 +30,7 @@ const checkout = (ref) => `      - uses: actions/checkout@v7
         run: echo "Verified SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
 `;
 const step = (s) => s.split('\n').filter(Boolean).map((l) => l.startsWith('- ') ? `      ${l}\n        if: ${NOHIT}` : `        ${l}`).join('\n') + '\n';
-const timings = `      # Per-test-file durations for \`proj perf\` (tiny artifact, kept 7 days).
+const timings = `      # Per-test-file durations, for finding slow tests (tiny artifact, kept 7 days).
       - uses: actions/upload-artifact@v7
         if: always() && ${NOHIT}
         with:
@@ -57,12 +57,12 @@ const S = {
 };
 for (const [stack, x] of Object.entries(S)) {
   const ci = `name: CI
-# Cost rules (details: AGENTS.md, \`proj perf\`):
+# Cost rules (details: AGENTS.md):
 # - Drafts spend nothing: the job is skipped before a runner starts; ready_for_review runs it on the head SHA.
-#   A skipped check is NOT a pass: proj counts only conclusion=success for the exact head SHA.
+#   A skipped check is NOT a pass: only conclusion=success for the exact head SHA verifies a commit.
 # - One full run per SHA: a later trigger (dispatch, reopen, re-ready) for a SHA this workflow already
 #   passed reuses that run. New commits on a PR cancel its superseded run (one concurrency group per PR).
-# - Self-hosted (optional): repo variable PROJ_RUNS_ON (\`proj runner use\`) routes only same-repo PRs not
+# - Self-hosted (optional): repo variable PROJ_RUNS_ON (a runner label) routes only same-repo PRs not
 #   opened by bots, and dispatches of non-bot branches, to ephemeral runners; the rest stays GitHub-hosted.
 on:
   pull_request:
@@ -93,8 +93,8 @@ jobs:
 ${reuse('ci.yml', '${{ github.event.pull_request.head.sha || github.sha }}', false)}${checkout('${{ github.event.pull_request.head.sha || github.sha }}')}${x.setup ? step(x.setup) : ''}${step(x.test)}${x.junit ? timings : ''}`;
   const heavy = `name: Heavy
 run-name: Heavy \${{ inputs.sha }}
-# Expensive suites (audits, E2E, mutation). Manual only, once per SHA: \`proj check --heavy --ci\` dispatches
-# it for a pushed SHA; prefer running them locally or on available external compute first.
+# Expensive suites (audits, E2E, mutation). Manual only, once per SHA: dispatch it for a
+# pushed SHA (\`gh workflow run heavy.yml -f sha=<sha>\`); prefer running them locally or on available external compute first.
 on:
   workflow_dispatch:
     inputs:

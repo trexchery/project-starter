@@ -4,24 +4,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeRepo, write, exists, ROOT } from './helpers.js';
 
-const FAKE = path.join(ROOT, 'test', 'fixtures', 'fake-ddc.mjs');
-const DEV = (host) => ({ leases: [{ role: 'dev', host, cpu: 64 }], burn_usd_hr: 1.2, balance_usd: 40 });
+const FAKE = path.join(ROOT, 'test', 'fixtures', 'fake-remote.mjs');
 
-// Repo + PROJ_HOME/config.json pointing compute.ddc at the fake. Returns the scenario file path.
-async function setup({ status, exit = 0, known = 'box.example.net ssh-ed25519 AAAAC3Nza\n', files, stateDir = true } = {}) {
+// Repo + PROJ_HOME/config.json whose compute.command is the fake remote. Returns the scenario file path.
+async function setup({ scenario = {}, files, stateDir = true } = {}) {
   const repo = await makeRepo({ files: { 'tracked.txt': 'tracked\n', ...files } });
-  const scenario = path.join(repo.parent, 'scenario.json');
-  fs.writeFileSync(scenario, JSON.stringify({ status, exit }));
-  const knownHosts = path.join(repo.parent, 'known_hosts');
-  fs.writeFileSync(knownHosts, known);
-  write(repo.home, 'config.json', JSON.stringify({ compute: { enabled: true, ddc: [process.execPath, FAKE, scenario], knownHosts } }));
-  // offload works whether or not proj has written state in this repo yet.
+  const file = path.join(repo.parent, 'scenario.json');
+  fs.writeFileSync(file, JSON.stringify(scenario));
+  write(repo.home, 'config.json', JSON.stringify({ compute: { enabled: true, command: [process.execPath, FAKE, file] } }));
   if (stateDir) fs.mkdirSync(path.join(repo.root, '.git', 'proj'), { recursive: true });
-  return { ...repo, scenario, ran: () => (exists(`${scenario}.ran`) ? JSON.parse(fs.readFileSync(`${scenario}.ran`, 'utf8')) : null) };
+  return { ...repo, scenario: file, ran: () => (exists(`${file}.ran`) ? JSON.parse(fs.readFileSync(`${file}.ran`, 'utf8')) : null) };
 }
 
 describe('proj offload', { concurrency: true }, () => {
-  test('compute disabled: exit 4, ddc never called', async () => {
+  test('compute disabled: exit 4, the remote is never called', async () => {
     const repo = await makeRepo();
     for (const args of [['offload'], ['offload', 'npm test']]) {
       const r = await repo.proj(args);
@@ -30,74 +26,86 @@ describe('proj offload', { concurrency: true }, () => {
     }
   });
 
-  test('no dev lease: exit 2', async () => {
-    const s = await setup({ status: { leases: [{ role: 'gpu', host: 'box.example.net' }] } });
-    assert.equal((await s.proj(['offload'])).code, 2);
-    const r = await s.proj(['offload', 'npm test']);
+  test('enabled without a remote configured: exit 2', async () => {
+    const repo = await makeRepo();
+    write(repo.home, 'config.json', JSON.stringify({ compute: { enabled: true } }));
+    const r = await repo.proj(['offload']);
     assert.equal(r.code, 2);
-    assert.match(r.err, /no ddc dev box is running/);
+    assert.match(r.out + r.err, /no remote configured/);
+  });
+
+  test('remote unreachable, missing or printing garbage: exit 2, nothing shipped', async () => {
+    const s = await setup({ scenario: { probeExit: 255, probeErr: 'ssh: connect to host box port 22: Connection timed out' } });
+    const r = await s.proj(['offload', 'npm test']);
+    assert.equal(r.code, 2, r.out + r.err);
+    assert.match(r.err, /not reachable/);
     assert.equal(s.ran(), null);
-  });
-
-  test('ddc missing or printing garbage: exit 2', async () => {
-    const s = await setup({ status: DEV('box.example.net') });
-    write(s.home, 'config.json', JSON.stringify({ compute: { enabled: true, ddc: [path.join(s.parent, 'no-such-ddc.exe')] } }));
+    write(s.home, 'config.json', JSON.stringify({ compute: { enabled: true, command: [path.join(s.parent, 'no-such-tool.exe')] } }));
     assert.equal((await s.proj(['offload', 'x'])).code, 2);
-    write(s.home, 'config.json', JSON.stringify({ compute: { enabled: true, ddc: [process.execPath, '-e', 'console.log("oops")'] } }));
+    write(s.home, 'config.json', JSON.stringify({ compute: { enabled: true, command: [process.execPath, '-e', 'console.log("oops")'] } }));
     assert.equal((await s.proj(['offload', 'x'])).code, 2);
   });
 
-  test('lease host not in compute.knownHosts: exit 5', async () => {
-    const s = await setup({ status: DEV('box.example.net'), known: 'other.example.net ssh-ed25519 AAAAC3Nza\n' });
+  test('host key not verified: exit 5, nothing shipped', async () => {
+    const s = await setup({ scenario: { probeExit: 255, probeErr: 'Host key verification failed.' } });
     const r = await s.proj(['offload', 'npm test']);
     assert.equal(r.code, 5, r.out + r.err);
     assert.match(r.err, /host identity unverified/);
     assert.equal(s.ran(), null);
   });
 
-  test('a known_hosts entry that merely contains the lease host is not a pinned key', async () => {
-    const s = await setup({ status: DEV('box.example.net'), known: 'evilbox.example.net ssh-ed25519 AAAAC3Nza\n', exit: 0 });
-    const r = await s.proj(['offload', 'npm test']);
-    assert.equal(r.code, 5, 'evilbox.example.net accepted as the key for box.example.net');
-    assert.equal(s.ran(), null);
-  });
-
-  test('pinned host: ships tracked + untracked files (not ignored ones) and passes the exit code through', async () => {
-    const s = await setup({ status: DEV('box.example.net'), exit: 7, files: { '.gitignore': 'ignored.txt\n.env\n' } });
+  test('ships tracked + untracked files (not ignored ones) and passes the exit code through', async () => {
+    const s = await setup({ scenario: { exit: 7, cpus: 32 }, files: { '.gitignore': 'ignored.txt\n.env\n' } });
     write(s.root, 'untracked.txt', 'untracked\n');
     write(s.root, 'ignored.txt', 'IGNORED-MARKER\n');
     write(s.root, '.env', 'SECRET=hunter2\n');
     const avail = await s.proj(['offload']);
     assert.equal(avail.code, 0, avail.err);
-    assert.match(avail.out, /available: box\.example\.net/);
+    assert.match(avail.out, /available: .*\(32 cpus\)/);
 
     const r = await s.proj(['offload', 'npm test']);
     assert.equal(r.code, 7, r.out + r.err);
     const ran = s.ran();
-    assert.equal(ran.args[0], '--timeout', 'ddc run --timeout <secs> <script>');
-    assert.equal(ran.args[1], String(30 * 60 + 60));
+    assert.match(ran.script, /base64 -d/);
     assert.ok(ran.bytes > 0);
     assert.match(ran.tar, /tracked\.txt/);
     assert.match(ran.tar, /untracked\.txt/);
     assert.doesNotMatch(ran.tar, /IGNORED-MARKER|hunter2/);
+    const script = Buffer.from(ran.script.match(/echo (\S+) \| base64/)[1], 'base64').toString();
+    assert.match(script, /timeout 1800 sh -c "npm test"/, 'runtime is capped at compute.maxRuntimeMin');
+    assert.match(script, /PROJ_MAX_WORKERS=8/);
 
-    fs.writeFileSync(s.scenario, JSON.stringify({ status: DEV('box.example.net'), exit: 0 }));
+    fs.writeFileSync(s.scenario, JSON.stringify({ exit: 0 }));
     assert.equal((await s.proj(['offload', 'npm test'])).code, 0);
   });
 
   test('offload works in a repo proj has never written state for', async () => {
-    const s = await setup({ status: DEV('box.example.net'), exit: 7, stateDir: false });
+    const s = await setup({ scenario: { exit: 7 }, stateDir: false });
     const r = await s.proj(['offload', 'npm test']);
     assert.doesNotMatch(r.err, /ENOENT/);
     assert.equal(r.code, 7);
   });
 
   test('refuses (exit 3) when a .env file is untracked and not ignored', async () => {
-    const s = await setup({ status: DEV('box.example.net') });
+    const s = await setup();
     write(s.root, '.env', 'SECRET=hunter2\n');
     const r = await s.proj(['offload', 'npm test']);
     assert.equal(r.code, 3, r.out + r.err);
     assert.match(r.err, /secret-looking files would ship: \.env/);
     assert.equal(s.ran(), null, 'nothing was sent');
   });
+
+  test('ssh transport uses strict host key checking and batch mode', async () => {
+    const { transport } = await import('../lib/checks.js');
+    const t = transport({ ssh: 'me@box', port: 2222 });
+    assert.deepEqual(t.argv, ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-p', '2222', 'me@box']);
+    assert.equal(transport({}), null);
+  });
+});
+
+test('compute.command may be a string; anything else is a clear error, not a crash', async () => {
+  const { transport } = await import('../lib/checks.js');
+  assert.deepEqual(transport({ command: ' mybox  run ' }).argv, ['mybox', 'run']);
+  assert.deepEqual(transport({ command: ['mybox', 'run'] }).argv, ['mybox', 'run']);
+  assert.throws(() => transport({ command: 42 }), /compute\.command must be a list/);
 });
