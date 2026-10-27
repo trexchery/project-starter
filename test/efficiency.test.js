@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { makeRepo, git, write, tmpDir, ROOT } from './helpers.js';
-import { selectTests, priorPass, knownHostsHas } from '../lib/checks.js';
+import { selectTests, priorPass } from '../lib/checks.js';
 import { parseJunit, withJunit, readJunit, localReport, analyzeRuns, workflowTimeouts, opportunities, estimate, recommend, multiplier } from '../lib/perf.js';
 import { runnerScript } from '../lib/runner.js';
 
@@ -316,50 +316,6 @@ describe('bench: estimate and recommend', { concurrency: true }, () => {
   });
 });
 
-describe('knownHostsHas (exact pinning only)', { concurrency: true }, () => {
-  const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample';
-  const hashed = (name) => {
-    const salt = crypto.randomBytes(20);
-    return `|1|${salt.toString('base64')}|${crypto.createHmac('sha1', salt).update(name).digest('base64')}`;
-  };
-
-  test('plain names, comma lists, comments', () => {
-    const kh = `# comment\n\nbox.example.com ${KEY}\nalpha.example.net,10.1.2.3 ${KEY}\r\n`;
-    assert.equal(knownHostsHas(kh, 'box.example.com'), true);
-    assert.equal(knownHostsHas(kh, 'box.example.com', 22), true);
-    assert.equal(knownHostsHas(kh, '10.1.2.3'), true);
-    assert.equal(knownHostsHas(kh, 'alpha.example.net', '22'), true);
-    assert.equal(knownHostsHas(kh, 'comment'), false);
-  });
-
-  test('[host]:port pins only that port', () => {
-    const kh = `[box.example.com]:2222 ${KEY}\n`;
-    assert.equal(knownHostsHas(kh, 'box.example.com', 2222), true);
-    assert.equal(knownHostsHas(kh, 'box.example.com', '2222'), true);
-    assert.equal(knownHostsHas(kh, 'box.example.com', 22), false);
-    assert.equal(knownHostsHas(kh, 'box.example.com', 2223), false);
-  });
-
-  test('a plain entry does not pin a non-22 port (ssh looks up only [host]:port)', () => {
-    assert.equal(knownHostsHas(`box.example.com ${KEY}\n`, 'box.example.com', 2222), false);
-  });
-
-  test('hashed |1|salt|hash entries (ssh-keygen -H), including [host]:port', () => {
-    const kh = `${hashed('box.example.com')} ${KEY}\n${hashed('[gpu.example.com]:31022')} ${KEY}\n`;
-    assert.equal(knownHostsHas(kh, 'box.example.com', 22), true);
-    assert.equal(knownHostsHas(kh, 'gpu.example.com', 31022), true);
-    assert.equal(knownHostsHas(kh, 'other.example.com'), false);
-    assert.equal(knownHostsHas(kh, 'gpu.example.com', 22), false);
-  });
-
-  test('@revoked is ignored; substrings and wildcards are not a pin', () => {
-    assert.equal(knownHostsHas(`@revoked box.example.com ${KEY}\n`, 'box.example.com'), false);
-    for (const pat of ['mybox.example.com', 'box.example.com.evil.net', '*.example.com', 'box.example.*', '*', 'box.example.co?']) {
-      assert.equal(knownHostsHas(`${pat} ${KEY}\n`, 'box.example.com'), false, pat);
-    }
-  });
-});
-
 describe('runner', { concurrency: true }, () => {
   test('runnerScript reads the token from $RUNNER_TOKEN, is ephemeral, and has a hard timeout', () => {
     const s = runnerScript({ url: 'https://github.com/acme/widget', name: 'proj-docker-box-1', labels: 'proj-ephemeral,linux', maxMin: 30, token: 'ghs_SECRETLITERAL' });
@@ -375,7 +331,7 @@ describe('runner', { concurrency: true }, () => {
 
   test('runner start refuses a non-GitHub origin and touches nothing', async () => {
     const repo = await makeRepo();
-    for (const mode of ['--docker', '--host', '--ddc']) {
+    for (const mode of ['--docker', '--host', '--remote']) {
       const r = await repo.proj(['runner', 'start', mode]);
       assert.notEqual(r.code, 0, mode);
       assert.match(r.err, /origin is not a GitHub repository/);

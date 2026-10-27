@@ -1,6 +1,6 @@
 # Evidence: end-to-end run, 2026-10-27
 
-Disposable private repo `trexchery/proj-e2e-20261027` (created by `proj new`; private, so its run links are not public).
+A disposable private repository created by `proj new` (private, so its run links are not public).
 Everything below was observed, not assumed. SHAs are exact.
 
 ## 1. Bootstrap (`proj new proj-e2e-20261027 --stack node`)
