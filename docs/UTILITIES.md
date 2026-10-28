@@ -30,7 +30,43 @@ proj status                      # implemented / tested / reviewed / CI-verified
 | One run per commit | CI templates skip drafts (no runner, 0 minutes), run on `ready_for_review`, cancel superseded runs, and reuse an earlier pass of the same workflow for the same commit |
 | Profiling | `proj perf`: per-test-file timings (JUnit), job and step durations, billed minutes (OS multipliers; self-hosted and Dependabot free), duplicate and cancelled-run waste, regressions and timeout advice |
 | Benchmarks | `proj bench` measures `bench.variants` and `bench.shardCmd` x `bench.shards`, estimates CI wall-clock and billed minutes, and recommends only a variant that passes, keeps every test and does not raise billed minutes beyond 25% |
-| Self-hosted CI | `proj runner use` routes same-repo PRs not opened by bots to one-job runners; `proj runner start --docker` starts one in a capped container (token on stdin, all capabilities dropped). Private repos only |
+| Self-hosted CI | `proj runner use` routes same-repo PRs not opened by bots to one-job runners; `proj runner start --docker` starts one in a capped container (single-use JIT config on stdin, all capabilities dropped). `proj runner serve` keeps a docker pool ready for every served repo (below). Private repos only |
+
+## Self-hosted runner pool (`proj runner serve`)
+
+Opt in per machine in `~/.proj/config.json` (a repo's `.proj.json` cannot):
+
+```json
+{ "runner": { "serve": { "repos": [], "slots": 3, "pool": 1, "cpus": 4, "memory": "8g", "pollSec": 60, "maxMinutes": 60 } } }
+```
+
+- With `runner.serve` present, `proj new` adds every new **private** repo to `repos` and sets `PROJ_RUNS_ON`
+  (public repos never). `proj runner use` / `use --hosted` adds or removes an existing repo.
+- Every `pollSec` serve lists each repo's runners (one API call per repo, about 200 calls an hour for 3 repos) and
+  starts `pool - idle` ephemeral containers, never more than `slots` at once (`slots` x `cpus` x `memory`). Each
+  runner registers with a single-use JIT config handed over on stdin, runs one job, and is removed. Archived,
+  deleted or public repos are skipped.
+- Fallback: when `docker version` fails two polls in a row, serve deletes `PROJ_RUNS_ON` on every served repo (CI
+  goes to GitHub-hosted), cancels runs whose jobs waited over 5 minutes on `proj-ephemeral`, and re-runs them
+  (runs-on is evaluated at queue time). When docker is healthy again it sets `PROJ_RUNS_ON` back. Stopping serve
+  (Ctrl+C, SIGTERM) also switches CI to GitHub-hosted; the next start switches it back.
+- `proj runner serve --once --dry-run` prints what one poll would do without starting or changing anything.
+
+Run it from a dedicated worktree pinned to `main`, so branch switches in your working checkout never change the
+code that serves CI (PowerShell; nothing below runs unless you run it):
+
+```powershell
+git -C $HOME\project-starter fetch origin
+git -C $HOME\project-starter worktree add --detach $HOME\.proj\serve-main origin/main
+schtasks /Create /TN "proj runner serve" /SC ONLOGON /RL LIMITED /F `
+  /TR "\"$((Get-Command node).Source)\" \"$HOME\.proj\serve-main\bin\proj.js\" runner serve"
+schtasks /Run /TN "proj runner serve"
+# update later: git -C $HOME\.proj\serve-main fetch origin; git -C $HOME\.proj\serve-main checkout --detach origin/main
+#               then schtasks /End /TN "proj runner serve"; schtasks /Run /TN "proj runner serve"
+```
+
+`schtasks /End` kills the process without a signal, so CI stays routed to self-hosted until serve runs again (or
+run `proj runner use --hosted` in each repo). If this PC is off, queued proj jobs wait until serve is back.
 
 ## Remote compute
 
@@ -63,7 +99,7 @@ Built-in defaults, then `~/.proj/config.json`, then the repo's `.proj.json`. `pr
   "maxAgents": 3, "maxOpenPRs": 3, "staleDays": 21, "activeHours": 6,
   "ci": { "monthlyMinutes": 2000, "warnAt": 0.8 },
   "compute": { "enabled": false, "ssh": null, "command": null, "maxRuntimeMin": 30, "maxWorkers": 8 },
-  "runner": { "allowHost": false, "cpus": 4, "memory": "8g", "maxMinutes": 60 },
+  "runner": { "allowHost": false, "cpus": 4, "memory": "8g", "maxMinutes": 60, "serve": null },
   "checks": { "affected": "node --test {tests}", "full": "npm test", "heavy": null },
   "testGlobs": ["test/**/*.test.js"]
 }
