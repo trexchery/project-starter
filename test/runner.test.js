@@ -476,7 +476,7 @@ describe('poll', { concurrency: true }, () => {
       }
     };
     const st = newServeState();
-    let started = 0; let docked = 0; let peak = 0; let recycledWithBacklog = false; const newbies = [];
+    let started = 0; let docked = 0; let peak = 0; let peakAt; let recycledAt; let recycledWithBacklog = false; const newbies = [];
     for (w.t = T0 - 10 * 60000; w.t <= T0 + 20 * 60000; w.t += 10000) {
       for (const j of jobs.filter((x) => x.status === 'in_progress' && x.end <= w.t)) { j.status = 'completed'; drop(j.runner); w.exits[j.runner]?.(0); }
       for (const [repo, name] of newbies.splice(0)) reg(repo, name, w.t); // registered 10 s after its start
@@ -487,7 +487,7 @@ describe('poll', { concurrency: true }, () => {
         for (; docked < w.dock.length; docked++) {
           const name = w.dock[docked].match(/^rm -f (.+)/)?.[1];
           if (!name) continue;
-          if (name === 'ps0') recycledWithBacklog = jobs.some((j) => j.status === 'queued' && j.at <= w.t);
+          if (name === 'ps0') { recycledAt = w.t; recycledWithBacklog = jobs.some((j) => j.status === 'queued' && j.at <= w.t); }
           drop(name);
         }
         for (; started < w.started.length; started++) newbies.push([w.started[started], `proj-docker-new-${started + 1}`]);
@@ -499,14 +499,16 @@ describe('poll', { concurrency: true }, () => {
         Object.assign(j, { status: 'in_progress', end: w.t + j.dur, runner: r.name });
         r.busy = true;
       }
-      peak = Math.max(peak, w.runners[DD].filter((x) => x.busy).length);
+      const busy = w.runners[DD].filter((x) => x.busy).length;
+      if (busy > peak) { peak = busy; peakAt = w.t; }
     }
     const c = cmds(w);
     assert.ok(!c.some((x) => x.startsWith('run cancel')), 'no run cancelled');
     assert.ok(!c.some((x) => x.startsWith('variable delete PROJ_RUNS_ON ')), 'no hosted flip');
     assert.ok(jobs.every((j) => j.status === 'completed'), `every job ran: ${jobs.map((j) => j.status)}`);
     assert.equal(peak, 3, 'drill-desk reaches all 3 slots');
-    assert.ok(recycledWithBacklog, "project-starter's idle runner recycled while drill-desk had a backlog");
+    assert.ok(peakAt <= T0 + 3 * 60000, `3 busy by T0+3 min, not at T0+${(peakAt - T0) / 1000}s`);
+    assert.ok(recycledWithBacklog && recycledAt <= T0 + 2 * 60000, "project-starter's idle runner recycled for the backlog (it would age out only at T0+8 min)");
     const a = w.acts;
     assert.ok(a.indexOf(`remove runner ps0 from ${PS}`) < a.indexOf('stop container ps0'), 'unregistered before the container stops');
     assert.equal(w.runners[PS].length, 1, 'project-starter gets its pool runner back once the backlog is gone');
