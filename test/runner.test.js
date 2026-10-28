@@ -229,6 +229,29 @@ describe('poll', { concurrency: true }, () => {
     }
   });
 
+  test('stuck check: a slot that frees on the check poll is not free; one free since the previous poll with no runner coming is', () => {
+    const old = '2026-10-27T11:50:00Z';
+    // slots 3, all busy; r3 finishes (container exits, unregisters) after `busyPolls` polls a minute apart.
+    const run = (busyPolls, backoff) => {
+      const busy = ['r1', 'r2', 'r3'].map((n) => runner(n, { busy: true }));
+      const w = world({ repos: ['o/a'], slots: 3, runners: { 'o/a': busy }, local: ['r1\to/a', 'r2\to/a', 'r3\to/a'],
+        queued: { 'o/a': [{ id: 7, created_at: old }] }, jobs: { 7: [{ status: 'queued', labels: [LABEL], created_at: old }] } });
+      const st = newServeState();
+      if (backoff) st.nextStart = Infinity;
+      poll(st, w.io);
+      for (let i = 1; i < busyPolls; i++) { w.t += 60000; poll(st, w.io); }
+      w.runners['o/a'] = busy.slice(0, 2); w.local = ['r1\to/a', 'r2\to/a'];
+      while (w.t < T0 + 5 * 60000) { w.t += 60000; poll(st, w.io); }
+      return { st, c: cmds(w) };
+    };
+    const freed = run(5, false); // r3 gone on the 5-minute check poll itself
+    assert.ok(!freed.c.some((x) => x.startsWith('run cancel')), 'no cancel');
+    assert.equal(freed.st.hosted, false, 'no hosted flip');
+    const held = run(4, true); // free and nothing coming on the 4th and 5th minute polls
+    assert.equal(held.st.hosted, true, 'free for a whole poll with no runner coming: hosted');
+    assert.ok(held.c.includes('run cancel 7 -R o/a'));
+  });
+
   test('routing re-asserted with each heartbeat: a PROJ_RUNS_ON the watchdog deleted is set again while serve polls', () => {
     const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('r1')] }, local: ['r1\to/a'] });
     const st = newServeState();
