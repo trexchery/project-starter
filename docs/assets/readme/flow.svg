@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240" role="img" aria-labelledby="t d">
+<title id="t">How project-starter works</title>
+<desc id="d">Four steps: describe the idea in plain words; it is understood as a kind, stack, screens and sensitive data; the repository is rendered with tests, CI, agent instructions and subagents; then it is protected: tests pass, the exact commit is pushed and checked, and branch rules turn on.</desc>
+<style>
+.sans{font-family:'Segoe UI Variable Display','Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif}
+.h{font-size:20px;font-weight:700;fill:#f1f5f9}
+.p{font-size:14px;fill:#94a3b8}
+.n{font-size:15px;font-weight:700;fill:#0b1220}
+</style>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1e293b"/></linearGradient></defs>
+<rect width="1200" height="240" rx="20" fill="url(#bg)"/>
+<g class="sans">
+<g transform="translate(24 40)">
+<rect width="252" height="160" rx="14" fill="#111827" stroke="#334155"/>
+<rect x="20" y="20" width="28" height="28" rx="7" fill="#34d399"/><text x="34" y="39" text-anchor="middle" class="n">1</text>
+<text x="62" y="41" class="h">Describe</text>
+<text x="20" y="84" class="p">"start a new project:</text>
+<text x="20" y="106" class="p">a Go CLI that checks</text>
+<text x="20" y="128" class="p">a site for broken links"</text>
+</g>
+<g transform="translate(324 40)">
+<rect width="252" height="160" rx="14" fill="#111827" stroke="#334155"/>
+<rect x="20" y="20" width="28" height="28" rx="7" fill="#34d399"/><text x="34" y="39" text-anchor="middle" class="n">2</text>
+<text x="62" y="41" class="h">Understood</text>
+<text x="20" y="84" class="p">kind and stack, screens,</text>
+<text x="20" y="106" class="p">sensitive data, database;</text>
+<text x="20" y="128" class="p">at most three questions</text>
+</g>
+<g transform="translate(624 40)">
+<rect width="252" height="160" rx="14" fill="#111827" stroke="#334155"/>
+<rect x="20" y="20" width="28" height="28" rx="7" fill="#34d399"/><text x="34" y="39" text-anchor="middle" class="n">3</text>
+<text x="62" y="41" class="h">Rendered</text>
+<text x="20" y="84" class="p">skeleton and tests, CI,</text>
+<text x="20" y="106" class="p">AGENTS.md, subagents,</text>
+<text x="20" y="128" class="p">kits only where they fit</text>
+</g>
+<g transform="translate(924 40)">
+<rect width="252" height="160" rx="14" fill="#0f2a22" stroke="#34d399" stroke-width="1.5"/>
+<rect x="20" y="20" width="28" height="28" rx="7" fill="#34d399"/><text x="34" y="39" text-anchor="middle" class="n">4</text>
+<text x="62" y="41" class="h">Protected</text>
+<text x="20" y="84" class="p">tests pass, that exact SHA</text>
+<text x="20" y="106" class="p">is pushed and checked,</text>
+<text x="20" y="128" class="p">then branch rules turn on</text>
+</g>
+<g fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="M284 120h32m-8-7 8 7-8 7"/><path d="M584 120h32m-8-7 8 7-8 7"/><path d="M884 120h32m-8-7 8 7-8 7"/>
+</g>
+</g>
+</svg>
