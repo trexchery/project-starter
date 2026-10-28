@@ -59,7 +59,8 @@ function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, loc
     const m = args[1].match(/^repos\/([^/]+\/[^/]+)\/actions\/(runners|runs)(?:\/(\d+)\/jobs)?/);
     if (m[2] === 'runners') return { runners: w.runners[m[1]] || [] };
     if (m[3]) return { jobs: w.jobs[m[3]] || [] };
-    return { workflow_runs: (w.queued[m[1]] || []).map((r) => ({ status: 'queued', ...r })) };
+    // updated_at moves whenever the run's jobs change, as on GitHub.
+    return { workflow_runs: (w.queued[m[1]] || []).map((r) => ({ status: 'queued', updated_at: JSON.stringify(w.jobs[r.id] ?? null), ...r })) };
   };
   w.io = {
     config: () => ({ repos: w.repos, ...(slots && { slots }), ...(pool && { pool }) }),
@@ -426,6 +427,86 @@ describe('poll', { concurrency: true }, () => {
     d.docker = false;
     for (let i = 0; i < 60; i++) { poll(sd, d.io); d.t += 60000; }
     assert.ok(d.calls.length < 300, `${d.calls.length} calls while docker is down`);
+  });
+
+  // Started runners register on the next poll; stopped containers leave docker ps and the runner list.
+  const settle = (w, seen) => {
+    for (; seen.started < w.started.length; seen.started++) {
+      const name = `proj-docker-new-${seen.started + 1}`; const repo = w.started[seen.started];
+      w.local.push(`${name}\t${repo}\t${Math.floor(w.t / 1000)}`);
+      (w.runners[repo] ||= []).push(runner(name, { id: 1000 + seen.started }));
+    }
+    for (; seen.dock < w.dock.length; seen.dock++) {
+      const name = w.dock[seen.dock].match(/^rm -f (.+)/)?.[1];
+      if (!name) continue;
+      w.local = w.local.filter((l) => !l.startsWith(`${name}\t`));
+      for (const r of Object.keys(w.runners)) w.runners[r] = w.runners[r].filter((x) => x.name !== name);
+    }
+  };
+  const hostedRuns = (w, repo, n, from) => {
+    const at = new Date(T0 - 3 * 60000).toISOString();
+    w.queued[repo] = [...(w.queued[repo] || []), ...Array.from({ length: n }, (_, i) => {
+      w.jobs[from + i] = [{ status: 'in_progress', labels: ['ubuntu-latest'], created_at: at }];
+      return { id: from + i, status: 'in_progress', created_at: at };
+    })];
+  };
+
+  test('API budget: 3 quiet repos whose idle runners age out, each with 4 hosted runs in progress: under 300 calls an hour', () => {
+    const repos = ['o/a', 'o/b', 'o/c'];
+    const w = world({ repos, runners: Object.fromEntries(repos.map((r, i) => [r, [runner(`r${i}`, { id: i + 1 })]])),
+      local: repos.map((r, i) => `r${i}\t${r}\t${ago(15)}`) });
+    repos.forEach((r, i) => hostedRuns(w, r, 4, 10 * (i + 1)));
+    const st = newServeState();
+    st.pulled = true;
+    const seen = { started: 0, dock: 0 };
+    for (let i = 0; i < 60; i++) { poll(st, w.io); settle(w, seen); w.t += 60000; }
+    assert.ok(w.started.length >= 6, `idle runners aged out and were replaced: ${w.started.length} starts`);
+    const total = w.calls.length + w.started.length; // + one JIT config call per start
+    assert.ok(total < 300, `${total} calls (${w.calls.filter((c) => /\/jobs$/.test(c[1])).length} jobs calls)`);
+  });
+
+  test('API budget: a backlog burst next to 20 hosted runs in progress fetches jobs only for runs that changed', () => {
+    const old = new Date(T0 - 2 * 60000).toISOString();
+    const busy = ['b1', 'b2', 'b3'].map((n) => runner(n, { busy: true }));
+    const w = world({ repos: ['o/a'], slots: 3, runners: { 'o/a': busy }, local: ['b1\to/a', 'b2\to/a', 'b3\to/a'],
+      queued: { 'o/a': [{ id: 1, created_at: old }] }, jobs: { 1: [1, 2, 3, 4].map(() => ({ status: 'queued', labels: [LABEL], created_at: old })) } });
+    hostedRuns(w, 'o/a', 20, 100);
+    const st = newServeState();
+    let changed = 0;
+    for (let i = 0; i < 30; i++) {
+      if (i && i % 5 === 0) { w.jobs[100 + i / 5] =[{ status: 'completed', labels: ['ubuntu-latest'], created_at: old }]; changed++; }
+      poll(st, w.io);
+      w.t += 60000;
+    }
+    assert.equal(st.backlog['o/a'], 4, 'listed every poll');
+    const jobsCalls = w.calls.filter((c) => /\/jobs$/.test(c[1])).length;
+    assert.equal(jobsCalls, 21 + changed, `${jobsCalls} jobs calls: once per run, again only when it changed`);
+  });
+
+  // Live 2026-10-28: the fallback's rescue cancelled a drill-desk desk-web run while its GitHub-hosted job ran.
+  test('rescue never cancels a run while any of its jobs is in progress: it waits for them, or 30 min at most', () => {
+    const old = '2026-10-27T11:50:00Z';
+    const hosted = (status) => ({ status, labels: ['ubuntu-latest'], created_at: old });
+    const proj = { status: 'queued', labels: ['self-hosted', LABEL], created_at: old };
+    const w = world({ repos: ['o/a'], docker: false, queued: { 'o/a': [{ id: 7, created_at: old }] }, jobs: { 7: [hosted('in_progress'), proj] } });
+    const st = newServeState();
+    for (let i = 0; i < 10; i++) { poll(st, w.io); w.t += 60000; }
+    assert.equal(st.hosted, true);
+    assert.ok(!cmds(w).some((c) => c.startsWith('run cancel')), 'hosted job in progress: not cancelled');
+    w.jobs[7] = [hosted('completed'), proj];
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('run cancel 7 -R o/a'), 'cancelled once nothing in it runs');
+    w.t += 60000;
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('run rerun 7 --failed -R o/a'));
+
+    const n = world({ repos: ['o/a'], docker: false, queued: { 'o/a': [{ id: 8, created_at: old, status: 'in_progress' }] }, jobs: { 8: [hosted('in_progress'), proj] } });
+    const sn = newServeState();
+    for (let i = 0; i <= 30; i++) { n.t = T0 + i * 60000; poll(sn, n.io); } // rescue first finds it at T0+1 min
+    assert.ok(!cmds(n).some((c) => c.startsWith('run cancel')), 'still in progress, bound not reached');
+    n.t = T0 + 31 * 60000;
+    poll(sn, n.io);
+    assert.ok(cmds(n).includes('run cancel 8 -R o/a'), 'cancelled 30 min after it was first found');
   });
 
   // One push, 3 short parallel proj jobs. Each replacement registers, takes the next job and exits 0
