@@ -1,0 +1,52 @@
+name: Heavy
+run-name: Heavy ${{ inputs.sha }}
+# Expensive suites (audits, E2E, mutation). Manual only, once per SHA: dispatch it for a
+# pushed SHA (`gh workflow run heavy.yml -f sha=<sha>`); prefer running them locally or on available external compute first.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit to verify
+        required: true
+      force:
+        description: Run even if this SHA already passed
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  heavy:
+    concurrency:
+      group: heavy-${{ inputs.sha }}
+      cancel-in-progress: false
+    runs-on: ${{ vars.PROJ_RUNS_ON != '' && ((github.event_name == 'workflow_dispatch' && !startsWith(github.ref_name, 'dependabot/')) || (github.event.pull_request.head.repo.full_name == github.repository && !endsWith(github.event.pull_request.user.login, '[bot]'))) && fromJSON(vars.PROJ_RUNS_ON) || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # One full run per SHA: if this workflow already passed for this exact commit, report that instead of re-testing.
+      - name: Reuse a passing result for this exact SHA
+        id: reuse
+        if: ${{ !inputs.force }}
+        uses: actions/github-script@v9
+        env:
+          SHA: ${{ inputs.sha }}
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({ ...context.repo, workflow_id: 'heavy.yml', status: 'success', per_page: 100 });
+            const prior = data.workflow_runs.find((r) => r.id !== context.runId && r.display_title === `Heavy ${process.env.SHA}`);
+            if (prior) { core.setOutput('hit', 'true'); await core.summary.addRaw(`Reused the passing run for ${process.env.SHA}: ${prior.html_url}`).write(); }
+      - uses: actions/checkout@v7
+        if: steps.reuse.outputs.hit != 'true'
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Record the exact SHA under test
+        if: steps.reuse.outputs.hit != 'true'
+        run: echo "Testing SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cargo test --release -- --include-ignored
+        if: steps.reuse.outputs.hit != 'true'

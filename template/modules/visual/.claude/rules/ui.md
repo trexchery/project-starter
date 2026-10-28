@@ -7,4 +7,5 @@ paths:
 ---
 UI code. Use only the tokens and components in DESIGN.md; a new visual style means updating DESIGN.md first. Before
 the pull request is ready, take desktop and mobile screenshots (`proj shot <page> <out.png>`, or headless Chrome/Edge with `--screenshot`) and get a
-`visual-critic` review against DESIGN.md.
+`visual-critic` review against DESIGN.md. If DESIGN.md defines states, motion or a performance budget, also shoot the
+changed states and report the measured budget (unmeasured means not verified).

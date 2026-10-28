@@ -4,8 +4,17 @@
   "private": true,
   "description": "{{description}}",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22{{#ts}}.18{{/ts}}" },
   "scripts": {
+{{#ts}}
+    "typecheck": "tsc",
+{{/ts}}
     "test": "node --test"
+{{#ts}}
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^6.0.3"
+{{/ts}}
   }
 }

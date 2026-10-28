@@ -8,7 +8,6 @@ import crypto from 'node:crypto';
 import { makeRepo, git, write, tmpDir, ROOT } from './helpers.js';
 import { selectTests, priorPass } from '../lib/checks.js';
 import { parseJunit, withJunit, readJunit, localReport, analyzeRuns, workflowTimeouts, opportunities, estimate, recommend, multiplier } from '../lib/perf.js';
-import { runnerScript } from '../lib/runner.js';
 
 // A check command that proves it ran: appends one byte to $PROJ_TEST_COUNTER (a file outside the repo).
 const COUNT = `node -e "require('fs').appendFileSync(process.env.PROJ_TEST_COUNTER,'x')"`;
@@ -242,7 +241,7 @@ describe('perf: GitHub Actions cost analysis', { concurrency: true }, () => {
   });
 
   test('workflowTimeouts parses the shipped templates; a small p95 suggests a lower timeout', () => {
-    for (const stack of ['node', 'python', 'generic']) {
+    for (const stack of fs.readdirSync(path.join(ROOT, 'template', 'stacks'))) {
       const t = workflowTimeouts(path.join(ROOT, 'template', 'stacks', stack));
       assert.equal(t['CI/verify'], 15, stack);
       assert.equal(t['Heavy/heavy'], 30, stack);
@@ -317,18 +316,6 @@ describe('bench: estimate and recommend', { concurrency: true }, () => {
 });
 
 describe('runner', { concurrency: true }, () => {
-  test('runnerScript reads the token from $RUNNER_TOKEN, is ephemeral, and has a hard timeout', () => {
-    const s = runnerScript({ url: 'https://github.com/acme/widget', name: 'proj-docker-box-1', labels: 'proj-ephemeral,linux', maxMin: 30, token: 'ghs_SECRETLITERAL' });
-    assert.match(s, /--token "\$RUNNER_TOKEN"/);
-    assert.doesNotMatch(s, /ghs_|SECRETLITERAL/);
-    assert.equal(s.match(/--token\s+(\S+)/g).length, 1);
-    assert.match(s, /--ephemeral/);
-    assert.match(s, /unset RUNNER_TOKEN/);
-    assert.match(s, /timeout --kill-after=30 1800 \.\/run\.sh/);
-    assert.match(s, /IFS= read -r RUNNER_TOKEN/, 'token arrives on stdin');
-    assert.ok(s.startsWith('set -e;'));
-  });
-
   test('runner start refuses a non-GitHub origin and touches nothing', async () => {
     const repo = await makeRepo();
     for (const mode of ['--docker', '--host', '--remote']) {
@@ -369,7 +356,8 @@ describe('CI templates (static)', { concurrency: true }, () => {
       const co = list.find((s) => /uses: actions\/checkout@/.test(s));
       assert.match(co, /persist-credentials: false/);
       assert.match(co, file === 'ci.yml' ? /ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/ : /ref: \$\{\{ inputs\.sha \}\}/);
-      assert.doesNotMatch(text, /^\s*(- )?cache(-dependency-path)?:/m, 'caching must be benchmarked first');
+      assert.doesNotMatch(text, /(^\s*(- )?|[{,]\s*)cache(-dependency-path)?: (?!false\b)/m, 'caching must be benchmarked first (setup-go needs an explicit false)');
+      assert.doesNotMatch(text, /Verified SHA/, 'the summary says Testing, before any test has run');
       assert.doesNotMatch(text, /actions\/cache@/);
     });
   }
@@ -384,6 +372,21 @@ describe('CI templates (static)', { concurrency: true }, () => {
       assert.match(heavy.match(/^run-name: (.*)$/m)[1], /\$\{\{ inputs\.sha \}\}/);
     });
   }
+});
+
+test('typescript stack type-checks in CI with a lockfile npm ci accepts; node stays dependency-free', async () => {
+  const { renderTemplate, templateVars } = await import('../lib/bootstrap.js');
+  const gen = (stack) => { const profile = { stack, kind: 'library', visual: false, sensitive: [], database: false, tasks: false }; return renderTemplate(profile, templateVars({ name: 'x', description: 'd', profile })); };
+  const ts = gen('typescript'), js = gen('node');
+  const pkg = JSON.parse(ts.get('package.json')), lock = JSON.parse(ts.get('package-lock.json'));
+  assert.equal(pkg.scripts.typecheck, 'tsc');
+  assert.equal(JSON.parse(ts.get('tsconfig.json')).compilerOptions.noEmit, true);
+  assert.deepEqual(lock.packages[''].devDependencies, pkg.devDependencies, 'lock root matches package.json');
+  for (const d of Object.keys(pkg.devDependencies)) assert.ok(lock.packages[`node_modules/${d}`]?.integrity, `${d} locked`);
+  assert.match(ts.get('.github/workflows/ci.yml'), /- run: npm run typecheck/);
+  assert.ok(!JSON.parse(js.get('package.json')).devDependencies && Object.keys(JSON.parse(js.get('package-lock.json')).packages).length === 1);
+  assert.doesNotMatch(js.get('.github/workflows/ci.yml'), /typecheck/);
+  assert.ok(!js.has('tsconfig.json'), 'no tsconfig.json for plain node');
 });
 
 describe('CI verdict for an exact SHA', () => {

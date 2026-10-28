@@ -1,0 +1,11 @@
+{
+  "stack": "go",
+  "checks": {
+    "affected": "go test ./...",
+    "full": "go test ./...",
+    "heavy": "go vet ./..."
+  },
+  "testGlobs": [],
+  "setup": "go mod download",
+  "test": "go test ./..."
+}

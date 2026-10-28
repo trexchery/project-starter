@@ -1,12 +1,13 @@
 {
   "name": "project-starter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "proj: private repo bootstrap, tracked agent worktrees, exact-SHA verification, safe cleanup",
   "type": "module",
   "repository": "github:trexchery/project-starter",
   "license": "MIT",
   "author": "project-starter contributors",
+  "files": ["bin", "lib", "template", "skills", ".claude-plugin", "README.md", "LICENSE"],
   "bin": {
     "proj": "bin/proj.js"
   },

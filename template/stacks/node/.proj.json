@@ -1,11 +1,13 @@
 {
-  "stack": "node",
+  "stack": "{{stack}}",
   "checks": {
     "affected": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit} {tests}",
     "full": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination={junit}",
     "heavy": "npm audit --audit-level=high && npm run test:heavy --if-present"
   },
-  "testGlobs": ["test/**/*.test.js"],
+  "testGlobs": ["test/**/*.test.{{ext}}"],
+  "setup": "npm ci",
+  "test": "npm test",
   "bench": {
     "runs": 3,
     "setupSecs": 45,
