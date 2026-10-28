@@ -1,0 +1,56 @@
+name: CI
+# Cost rules (details: AGENTS.md):
+# - Drafts spend nothing: the job is skipped before a runner starts; ready_for_review runs it on the head SHA.
+#   A skipped check is NOT a pass: only conclusion=success for the exact head SHA verifies a commit.
+# - One full run per SHA: a later trigger (dispatch, reopen, re-ready) for a SHA this workflow already
+#   passed reuses that run. New commits on a PR cancel its superseded run (one concurrency group per PR).
+# - Self-hosted (optional): repo variable PROJ_RUNS_ON (a runner label) routes only same-repo PRs not
+#   opened by bots, and dispatches of non-bot branches, to ephemeral runners; the rest stays GitHub-hosted.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Run the full suite even if this SHA already passed
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    concurrency:
+      group: ci-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ vars.PROJ_RUNS_ON != '' && ((github.event_name == 'workflow_dispatch' && !startsWith(github.ref_name, 'dependabot/')) || (github.event.pull_request.head.repo.full_name == github.repository && !endsWith(github.event.pull_request.user.login, '[bot]'))) && fromJSON(vars.PROJ_RUNS_ON) || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # One full run per SHA: if this workflow already passed for this exact commit, report that instead of re-testing.
+      - name: Reuse a passing result for this exact SHA
+        id: reuse
+        if: ${{ !inputs.force }}
+        uses: actions/github-script@v9
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({ ...context.repo, workflow_id: 'ci.yml', status: 'success', head_sha: process.env.SHA, per_page: 100 });
+            const prior = data.workflow_runs.find((r) => r.id !== context.runId && r.head_sha === process.env.SHA);
+            if (prior) { core.setOutput('hit', 'true'); await core.summary.addRaw(`Reused the passing run for ${process.env.SHA}: ${prior.html_url}`).write(); }
+      - uses: actions/checkout@v7
+        if: steps.reuse.outputs.hit != 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Record the exact SHA under test
+        if: steps.reuse.outputs.hit != 'true'
+        run: echo "Testing SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cargo test
+        if: steps.reuse.outputs.hit != 'true'

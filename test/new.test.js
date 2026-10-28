@@ -1,14 +1,28 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { proj, git, run, tmpDir, exists, read, write } from './helpers.js';
 
 const placeholders = (text) => text.replace(/\$\{\{[\s\S]*?\}\}/g, '').match(/\{\{\s*\w+\s*\}\}/g) || [];
 
+const SKELETON = { node: 'test/index.test.js', typescript: 'test/index.test.ts', python: 'tests/test_hello.py', go: 'hello_test.go', rust: 'src/lib.rs', dotnet: 'Demo-dotnet.sln' };
+// Why the stack's real test cannot run here, or '' when it can.
+async function toolchainMissing(stack) {
+  if (stack === 'python') return (await run('python', ['-m', 'pytest', '--version'])).code === 0 ? '' : 'python with pytest is not installed here';
+  const tool = { node: 'npm', typescript: 'npm', go: 'go', rust: 'cargo', dotnet: 'dotnet' }[stack];
+  const probe = tool === 'go' ? 'version' : '--version';
+  const ok = await run(tool, [probe], { shell: process.platform === 'win32' && tool === 'npm' }).then((r) => r.code === 0, () => false);
+  if (!ok) return `\`${tool} ${probe}\` fails here (not installed, or no toolchain): the ${stack} skeleton test was NOT run`;
+  if (stack === 'dotnet' && !fs.existsSync(path.join(process.env.NUGET_PACKAGES || path.join(os.homedir(), '.nuget', 'packages'), 'xunit', '2.9.2')))
+    return 'xunit 2.9.2 is not in the local NuGet cache (restoring it needs the network): the dotnet skeleton test was NOT run';
+  return '';
+}
+
 describe('proj new', { concurrency: true }, () => {
-  for (const stack of ['node', 'python', 'generic']) {
-    test(`--no-remote renders the ${stack} stack, configures git, makes one commit`, async () => {
+  for (const stack of ['node', 'typescript', 'python', 'go', 'rust', 'dotnet', 'generic']) {
+    test(`--no-remote renders the ${stack} stack, configures git, makes one commit`, async (t) => {
       const parent = tmpDir('new-');
       const home = path.join(parent, 'home');
       const name = `Demo-${stack}`;
@@ -19,8 +33,9 @@ describe('proj new', { concurrency: true }, () => {
       const files = (await git(dir, 'ls-files')).split(/\r?\n/);
       for (const f of ['AGENTS.md', 'CLAUDE.md', '.proj.json', '.gitignore', '.gitattributes', '.github/workflows/ci.yml', '.claude/settings.json'])
         assert.ok(files.includes(f), `${f} committed`);
-      if (stack === 'node') assert.ok(files.includes('package.json') && files.includes('test/index.test.js'));
+      if (SKELETON[stack]) assert.ok(files.includes(SKELETON[stack]), `${SKELETON[stack]} rendered`);
       if (stack === 'python') assert.ok(files.includes(`src/demo_python/__init__.py`), 'module dir rendered from {{module}}');
+      if (stack === 'dotnet') assert.ok(files.includes('tests/demo_dotnet.Tests/demo_dotnet.Tests.csproj'), 'project dirs rendered from {{module}}');
       for (const f of files) {
         assert.deepEqual(placeholders(f), [], `placeholder in file name ${f}`);
         assert.deepEqual(placeholders(read(dir, f)), [], `leftover placeholder in ${f}`);
@@ -39,10 +54,14 @@ describe('proj new', { concurrency: true }, () => {
       assert.ok(pj.managed['AGENTS.md'] && !pj.managed['README.md'], 'managed hashes cover starter files, not project-owned ones');
       assert.ok(JSON.parse(fs.readFileSync(path.join(home, 'repos.json'), 'utf8')).includes(dir), 'registered in PROJ_HOME');
 
-      if (stack === 'node') {
-        const t = await run('npm test', [], { cwd: dir, shell: true });
-        assert.equal(t.code, 0, t.out + t.err);
-      }
+      // The skeleton's own test passes with the real toolchain, when this machine has it (never downloads anything).
+      if (stack === 'generic') return; // no skeleton test: its fail-closed check is tested in bootstrap.test.js
+      const why = await toolchainMissing(stack);
+      if (why) return t.skip(why);
+      const [cmd, ...args] = JSON.parse(read(dir, '.proj.json')).test.split(' ');
+      const res = await run(cmd, args, { cwd: dir, shell: process.platform === 'win32' && cmd === 'npm' });
+      assert.equal(res.code, 0, res.out + res.err);
+      assert.match(res.out, /\b(pass 1|1 passed|Passed:\s+1|test result: ok\. 1 passed|ok\s)/, 'one real test ran');
     });
   }
 

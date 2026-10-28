@@ -17,7 +17,7 @@ Create
   proj new <name> "what you are building"   understands the description and renders only what fits:
                                            stack, tests, CI, GitHub protections, AGENTS.md/CLAUDE.md,
                                            specialist agents, security/database rules, Creative Director kit
-      [--kind ..] [--stack node|python|generic] [--visual|--no-visual] [--sensitive auth,payments,pii,secrets|none]
+      [--kind ..] [--stack node|typescript|python|go|rust|dotnet|generic] [--visual|--no-visual] [--sensitive auth,payments,pii,secrets|none]
       [--database] [--tasks] [--profile file.json] [--dir <parent>] [--no-remote] [--no-protect] [--dry-run]
       --no-protect: create and push the repo, apply protections later with proj protect (after your own first push)
   proj adopt [--dry-run] [--upgrade] [same profile flags]   add missing pieces to an existing repo; never overwrites

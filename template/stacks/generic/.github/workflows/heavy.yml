@@ -47,6 +47,6 @@ jobs:
           persist-credentials: false
       - name: Record the exact SHA under test
         if: steps.reuse.outputs.hit != 'true'
-        run: echo "Verified SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: echo "Testing SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
       - run: if [ -f scripts/heavy.ps1 ]; then pwsh -NoProfile -File scripts/heavy.ps1; else echo "no heavy suite"; fi
         if: steps.reuse.outputs.hit != 'true'

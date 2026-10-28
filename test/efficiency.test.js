@@ -241,7 +241,7 @@ describe('perf: GitHub Actions cost analysis', { concurrency: true }, () => {
   });
 
   test('workflowTimeouts parses the shipped templates; a small p95 suggests a lower timeout', () => {
-    for (const stack of ['node', 'python', 'generic']) {
+    for (const stack of fs.readdirSync(path.join(ROOT, 'template', 'stacks'))) {
       const t = workflowTimeouts(path.join(ROOT, 'template', 'stacks', stack));
       assert.equal(t['CI/verify'], 15, stack);
       assert.equal(t['Heavy/heavy'], 30, stack);
@@ -356,7 +356,8 @@ describe('CI templates (static)', { concurrency: true }, () => {
       const co = list.find((s) => /uses: actions\/checkout@/.test(s));
       assert.match(co, /persist-credentials: false/);
       assert.match(co, file === 'ci.yml' ? /ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/ : /ref: \$\{\{ inputs\.sha \}\}/);
-      assert.doesNotMatch(text, /^\s*(- )?cache(-dependency-path)?:/m, 'caching must be benchmarked first');
+      assert.doesNotMatch(text, /(^\s*(- )?|[{,]\s*)cache(-dependency-path)?: (?!false\b)/m, 'caching must be benchmarked first (setup-go needs an explicit false)');
+      assert.doesNotMatch(text, /Verified SHA/, 'the summary says Testing, before any test has run');
       assert.doesNotMatch(text, /actions\/cache@/);
     });
   }
