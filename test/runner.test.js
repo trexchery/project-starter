@@ -169,7 +169,7 @@ describe('poll', { concurrency: true }, () => {
     w.t += 60000;
     poll(st, w.io);
     assert.equal(w.started.length, 3, 'two listed, one still spawning: 3 of 3');
-    w.exits['proj-docker-new-3']();  // its client exited before docker listed it: a failed start, backs off one round
+    w.exits['proj-docker-new-3'](125);  // its client exited non-zero before docker listed it: a failed start, backs off one round
     w.t += 2 * 60000;
     poll(st, w.io);
     assert.deepEqual(w.started, ['o/a', 'o/b', 'o/c', 'o/c']);
@@ -414,6 +414,31 @@ describe('poll', { concurrency: true }, () => {
     d.docker = false;
     for (let i = 0; i < 60; i++) { poll(sd, d.io); d.t += 60000; }
     assert.ok(d.calls.length < 300, `${d.calls.length} calls while docker is down`);
+  });
+
+  // One push, 3 short parallel proj jobs. Each replacement registers, takes the next job and exits 0
+  // before the next 60 s poll lists it: a normal ephemeral exit, not a failed start.
+  test('fast normal ephemeral jobs on unlisted runners are not failed starts: no backoff, no fallback', () => {
+    const w = world({ repos: ['o/a'], slots: 3, runners: { 'o/a': [runner('r1')] }, local: ['r1\to/a'] });
+    const st = newServeState();
+    poll(st, w.io);
+    assert.equal(st.hosted, false);
+    const at = new Date(T0 + 10000).toISOString();
+    w.queued['o/a'] = [{ id: 9, created_at: at }];
+    w.jobs[9] = [{ status: 'in_progress', labels: [LABEL], created_at: at }, { status: 'queued', labels: [LABEL], created_at: at }, { status: 'queued', labels: [LABEL], created_at: at }];
+    w.runners['o/a'] = [runner('r1', { busy: true })];
+    let jobsLeft = 2;
+    for (let i = 1; i <= 12; i++) {
+      w.t = T0 + i * 60000;
+      if (i === 2) { w.local = []; w.runners['o/a'] = []; } // r1 finished job 1 and left
+      poll(st, w.io);
+      for (const k of Object.keys(w.exits)) {
+        if (jobsLeft > 0) { jobsLeft--; w.t += 50000; w.exits[k](0, null); w.t -= 50000; delete w.exits[k]; }
+        else if (!w.local.some((l) => l.startsWith(k))) { w.local.push(`${k}\to/a\t${Math.floor(w.t / 1000)}`); w.runners['o/a'] = [...(w.runners['o/a'] || []), runner(k)]; }
+      }
+    }
+    assert.equal(st.fails, 0, 'normal job exits counted as failed starts');
+    assert.notEqual(st.hosted, true, 'CI flipped to hosted after 3 short jobs');
   });
 });
 
