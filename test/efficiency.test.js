@@ -374,6 +374,21 @@ describe('CI templates (static)', { concurrency: true }, () => {
   }
 });
 
+test('typescript stack type-checks in CI with a lockfile npm ci accepts; node stays dependency-free', async () => {
+  const { renderTemplate, templateVars } = await import('../lib/bootstrap.js');
+  const gen = (stack) => { const profile = { stack, kind: 'library', visual: false, sensitive: [], database: false, tasks: false }; return renderTemplate(profile, templateVars({ name: 'x', description: 'd', profile })); };
+  const ts = gen('typescript'), js = gen('node');
+  const pkg = JSON.parse(ts.get('package.json')), lock = JSON.parse(ts.get('package-lock.json'));
+  assert.equal(pkg.scripts.typecheck, 'tsc');
+  assert.equal(JSON.parse(ts.get('tsconfig.json')).compilerOptions.noEmit, true);
+  assert.deepEqual(lock.packages[''].devDependencies, pkg.devDependencies, 'lock root matches package.json');
+  for (const d of Object.keys(pkg.devDependencies)) assert.ok(lock.packages[`node_modules/${d}`]?.integrity, `${d} locked`);
+  assert.match(ts.get('.github/workflows/ci.yml'), /- run: npm run typecheck/);
+  assert.ok(!JSON.parse(js.get('package.json')).devDependencies && Object.keys(JSON.parse(js.get('package-lock.json')).packages).length === 1);
+  assert.doesNotMatch(js.get('.github/workflows/ci.yml'), /typecheck/);
+  assert.ok(!js.has('tsconfig.json'), 'no tsconfig.json for plain node');
+});
+
 describe('CI verdict for an exact SHA', () => {
   const run = (id, conclusion, extra = {}) => ({ id, head_sha: 'abc', status: 'completed', conclusion, run_started_at: '2026-10-27T10:00:00Z', html_url: `u${id}`, ...extra });
   test('a draft-stage skip with a higher id does not hide the real success', async () => {

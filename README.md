@@ -161,7 +161,6 @@ compute and repo health audits are available but never required: see [docs/UTILI
 <summary>Develop</summary>
 
 `npm test` runs the suite (temp repos, local bare remotes, no network) in under a minute.
-`node scripts/gen-workflows.mjs` regenerates the stacks' CI workflows from one source.
 
 </details>
 
