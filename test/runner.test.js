@@ -30,6 +30,18 @@ describe('plan', { concurrency: true }, () => {
     const three = plan({ slots: 3, pool: 1, dockerUp: false, downCount: 2, hosted: true });
     assert.deepEqual([three.variable, three.rescue], [null, true], 'already hosted: no second flip, keep rescuing');
   });
+  test('backlog: queued + pool - idle runners at once; backlog before pool refills; fewest-held repo first', () => {
+    assert.deepEqual(plan({ ...up, slots: 10, repos: [{ repo: 'a', idle: 0, queued: 7 }] }).starts, [{ repo: 'a', n: 8 }]);
+    assert.deepEqual(plan({ ...up, used: 1, repos: [{ repo: 'a', idle: 0 }, { repo: 'b', idle: 0, queued: 3, held: 1 }] }).starts, [{ repo: 'b', n: 2 }]);
+    assert.deepEqual(plan({ ...up, used: 2, repos: [{ repo: 'a', idle: 0, queued: 5, held: 2 }, { repo: 'b', idle: 0, queued: 5 }] }).starts, [{ repo: 'b', n: 1 }], 'b holds none: b first');
+  });
+  test('preempt: backlog with no free slot recycles idle runners of repos with nothing queued, never while backing off', () => {
+    const repos = [{ repo: 'a', idle: 0, queued: 6, held: 1 }, { repo: 'b', idle: 1, held: 1, spare: 1 }, { repo: 'c', idle: 1, queued: 1, held: 1, spare: 1 }];
+    const p = plan({ ...up, used: 3, repos });
+    assert.deepEqual([p.starts, p.preempt], [[{ repo: 'a', n: 1 }], [{ repo: 'b', n: 1 }]], 'c has a queued job: its idle runner stays');
+    assert.deepEqual(plan({ ...up, used: 3, canStart: false, repos }).preempt, []);
+    assert.deepEqual(plan({ ...up, used: 3, repos: [{ repo: 'a', idle: 0, held: 2 }, { repo: 'b', idle: 1, held: 1, spare: 1 }] }).preempt, [], 'a pool refill never preempts');
+  });
   test('docker healthy again (or state unknown at start): routing goes back to self-hosted once', () => {
     assert.equal(plan({ ...up, hosted: true, downCount: 4 }).variable, 'self');
     assert.equal(plan({ ...up, hosted: true, downCount: 4 }).downCount, 0);
@@ -47,7 +59,7 @@ function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, loc
     const m = args[1].match(/^repos\/([^/]+\/[^/]+)\/actions\/(runners|runs)(?:\/(\d+)\/jobs)?/);
     if (m[2] === 'runners') return { runners: w.runners[m[1]] || [] };
     if (m[3]) return { jobs: w.jobs[m[3]] || [] };
-    return { workflow_runs: w.queued[m[1]] || [] };
+    return { workflow_runs: (w.queued[m[1]] || []).map((r) => ({ status: 'queued', ...r })) };
   };
   w.io = {
     config: () => ({ repos: w.repos, ...(slots && { slots }), ...(pool && { pool }) }),
@@ -439,6 +451,93 @@ describe('poll', { concurrency: true }, () => {
     }
     assert.equal(st.fails, 0, 'normal job exits counted as failed starts');
     assert.notEqual(st.hosted, true, 'CI flipped to hosted after 3 short jobs');
+  });
+
+  // Live pilot 2026-10-28, slots 3, pool 1: a drill-desk push queued 8 proj jobs (1.5-3 min each) in 3 runs while
+  // project-starter sat idle with its pool runner. Serve used to start one runner a poll, keep project-starter's idle
+  // runner on a slot, then call the steady churn "stuck" and cancel the queued runs. 10 s ticks, polls every 60 s.
+  test('live pilot replay: 8-job burst, other repo idle -> scales to the backlog, recycles the idle runner, no fallback', () => {
+    const DD = 'o/drill-desk'; const PS = 'o/project-starter';
+    const w = world({ repos: [DD, PS], slots: 3, pool: 1 });
+    let ids = 100;
+    const reg = (repo, name, at) => { w.local.push(`${name}\t${repo}\t${Math.floor(at / 1000)}`); (w.runners[repo] ||= []).push(runner(name, { id: ++ids })); };
+    const drop = (name) => { w.local = w.local.filter((l) => !l.startsWith(`${name}\t`)); for (const r of [DD, PS]) w.runners[r] = (w.runners[r] || []).filter((x) => x.name !== name); };
+    reg(DD, 'dd0', T0 - 12 * 60000); reg(PS, 'ps0', T0 - 12 * 60000);
+    const jobs = [[1, 0, 95], [1, 0, 175], [1, 0, 120], [1, 0, 100], [1, 0, 160], [2, 0, 140], [3, 105, 180], [3, 105, 90]]
+      .map(([run, q, dur]) => ({ run, at: T0 + q * 1000, dur: dur * 1000, status: 'queued' }));
+    const sync = () => {
+      w.queued[DD] = [];
+      for (const run of [1, 2, 3]) {
+        const js = jobs.filter((j) => j.run === run && j.at <= w.t);
+        if (!js.length || js.every((j) => j.status === 'completed')) continue;
+        const created = new Date(js[0].at).toISOString();
+        w.queued[DD].push({ id: run, created_at: created, status: js.some((j) => j.status !== 'queued') ? 'in_progress' : 'queued' });
+        w.jobs[run] = js.map((j) => ({ status: j.status, labels: ['self-hosted', LABEL], created_at: created }));
+      }
+    };
+    const st = newServeState();
+    let started = 0; let docked = 0; let peak = 0; let recycledWithBacklog = false; const newbies = [];
+    for (w.t = T0 - 10 * 60000; w.t <= T0 + 20 * 60000; w.t += 10000) {
+      for (const j of jobs.filter((x) => x.status === 'in_progress' && x.end <= w.t)) { j.status = 'completed'; drop(j.runner); w.exits[j.runner]?.(0); }
+      for (const [repo, name] of newbies.splice(0)) reg(repo, name, w.t); // registered 10 s after its start
+      sync();
+      if ((w.t - T0) % 60000 === 30000) {
+        poll(st, w.io);
+        assert.notEqual(st.hosted, true, `hosted at T0+${(w.t - T0) / 1000}s`);
+        for (; docked < w.dock.length; docked++) {
+          const name = w.dock[docked].match(/^rm -f (.+)/)?.[1];
+          if (!name) continue;
+          if (name === 'ps0') recycledWithBacklog = jobs.some((j) => j.status === 'queued' && j.at <= w.t);
+          drop(name);
+        }
+        for (; started < w.started.length; started++) newbies.push([w.started[started], `proj-docker-new-${started + 1}`]);
+      }
+      // GitHub hands each idle runner the oldest queued job of its repo.
+      for (const r of w.runners[DD].filter((x) => !x.busy)) {
+        const j = jobs.find((x) => x.status === 'queued' && x.at <= w.t);
+        if (!j) break;
+        Object.assign(j, { status: 'in_progress', end: w.t + j.dur, runner: r.name });
+        r.busy = true;
+      }
+      peak = Math.max(peak, w.runners[DD].filter((x) => x.busy).length);
+    }
+    const c = cmds(w);
+    assert.ok(!c.some((x) => x.startsWith('run cancel')), 'no run cancelled');
+    assert.ok(!c.some((x) => x.startsWith('variable delete PROJ_RUNS_ON ')), 'no hosted flip');
+    assert.ok(jobs.every((j) => j.status === 'completed'), `every job ran: ${jobs.map((j) => j.status)}`);
+    assert.equal(peak, 3, 'drill-desk reaches all 3 slots');
+    assert.ok(recycledWithBacklog, "project-starter's idle runner recycled while drill-desk had a backlog");
+    const a = w.acts;
+    assert.ok(a.indexOf(`remove runner ps0 from ${PS}`) < a.indexOf('stop container ps0'), 'unregistered before the container stops');
+    assert.equal(w.runners[PS].length, 1, 'project-starter gets its pool runner back once the backlog is gone');
+    assert.equal(st.fails, 0);
+    const burst = w.calls.length;
+    assert.ok(burst < 150, `${burst} gh calls in 30 min (2 repos, under 300 an hour)`);
+  });
+
+  test('stuck check: a backlog that keeps moving while starts back off is not stuck; one that stops moving is', () => {
+    const old = new Date(T0 - 10 * 60000).toISOString();
+    // o/a: 3 slots busy with a matrix (run 1, in progress); run 2 queued 10 min ago waits behind it. Starts back off.
+    const run = (moving) => {
+      const w = world({ repos: ['o/a'], slots: 3, queued: { 'o/a': [{ id: 1, created_at: old, status: 'in_progress' }, { id: 2, created_at: old }] },
+        jobs: { 1: [{ status: 'in_progress', labels: [LABEL], created_at: old }], 2: [{ status: 'queued', labels: [LABEL], created_at: old }] } });
+      const st = newServeState();
+      st.nextStart = Infinity;
+      let k = 0;
+      for (let i = 0; i <= 12; i++) {
+        w.t = T0 + i * 60000;
+        // Each minute one runner finished and another took the next job: 2 busy, one slot changing hands.
+        if (moving || i === 0) { k++; w.runners['o/a'] = [runner(`b${k}`, { busy: true }), runner(`b${k + 1}`, { busy: true })]; w.local = [`b${k}\to/a`, `b${k + 1}\to/a`]; }
+        poll(st, w.io);
+      }
+      return { st, c: cmds(w) };
+    };
+    const moving = run(true);
+    assert.equal(moving.st.hosted, false, 'slot churn is progress');
+    assert.ok(!moving.c.some((x) => x.startsWith('run cancel')));
+    const stalled = run(false);
+    assert.equal(stalled.st.hosted, true, 'no runner took a job for 5 min and none can start: hosted');
+    assert.ok(stalled.c.includes('run cancel 2 -R o/a'));
   });
 });
 
