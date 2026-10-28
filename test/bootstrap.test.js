@@ -6,7 +6,7 @@ import zlib from 'node:zlib';
 import path from 'node:path';
 import { proj, git, tmpDir, exists, read, run, ROOT } from './helpers.js';
 import { inferProfile, flagOverrides } from '../lib/profile.js';
-import { render } from '../lib/bootstrap.js';
+import { render, renderTemplate, templateVars, rulesetOutcome } from '../lib/bootstrap.js';
 import { findBrowser } from '../lib/design.js';
 
 const MEALPLAN = 'A web app where families plan weekly meals, share recipes and pay a monthly subscription with Stripe; accounts, Postgres database';
@@ -15,9 +15,9 @@ describe('profile inference', () => {
   const cases = [
     [MEALPLAN, { kind: 'web-app', stack: 'node', visual: true, sensitive: ['auth', 'payments'], database: true }],
     ['A Python command-line tool that cleans and validates CSV exports', { kind: 'cli', stack: 'python', visual: false, sensitive: [], database: false }],
-    ['A small TypeScript library for structured logging', { kind: 'library', stack: 'node', visual: false, sensitive: [], database: false }],
+    ['A small TypeScript library for structured logging', { kind: 'library', stack: 'typescript', visual: false, sensitive: [], database: false }],
     ['A landing page for a neighborhood bakery', { kind: 'website', stack: 'node', visual: true, sensitive: [], database: false }],
-    ['A REST API in Go for warehouse inventory backed by Postgres', { kind: 'api', stack: 'generic', visual: false, database: true }],
+    ['A REST API in Go for warehouse inventory backed by Postgres', { kind: 'api', stack: 'go', visual: false, database: true }],
     ['An iOS app that tracks running routes', { kind: 'mobile-app', visual: true }],
     ['A FastAPI backend that stores patient appointments', { kind: 'api', stack: 'python', visual: false, sensitive: ['pii'] }],
     // review regressions: everyday words, "go", mixed stacks, plain "app", C#
@@ -27,7 +27,19 @@ describe('profile inference', () => {
     ['A website for a board game cafe', { kind: 'website', visual: true }],
     ['A booking app for hair salons', { kind: 'web-app', visual: true }],
     ['A Discord bot that posts daily stats', { sensitive: ['secrets'], visual: false }],
-    ['A C# desktop tool', { stack: 'generic' }],
+    ['A C# desktop tool', { stack: 'dotnet' }],
+    // a named language beats domain hints; games by engine or genre; crate/gem/module libraries; console apps
+    ['A Bevy game in Rust', { kind: 'game', stack: 'rust', visual: true }],
+    ['A 2D roguelike in C#', { kind: 'game', stack: 'dotnet', visual: true }],
+    ['A Unity game in C#', { kind: 'game', stack: 'generic' }],
+    ['A web scraper in Go', { kind: 'data', stack: 'go' }],
+    ['A machine learning model in Rust', { kind: 'data', stack: 'rust' }],
+    ['A dotnet console app', { kind: 'cli', stack: 'dotnet', visual: false }],
+    ['Go microservice', { kind: 'api', stack: 'go', uncertain: [] }],
+    ['A Ruby gem', { kind: 'library', stack: 'generic' }],
+    ['A node module for dates', { kind: 'library', stack: 'node' }],
+    ['A crate for parsing dates', { kind: 'library', stack: 'rust' }],
+    ['A C library for ring buffers', { kind: 'library', stack: 'generic', uncertain: [] }],
     ["Let's go build something", { stack: 'generic', kind: 'other', uncertain: ['kind', 'stack'] }],
   ];
   for (const [text, want] of cases) {
@@ -53,6 +65,45 @@ describe('template rendering', () => {
     assert.equal(render('a{{#x}}1{{/x}}b\n{{#x}}\nkeep\n{{/x}}\nend\n', { x: false }), 'ab\nend\n');
     assert.equal(render('a\r\n{{#x}}\r\nin\r\n{{/x}}\r\nb\r\n', { x: false }), 'a\r\nb\r\n');
   });
+});
+
+describe('generated README and banner', () => {
+  const rendered = (name, stack) => {
+    const profile = inferProfile('a tool', { stack, kind: 'cli' });
+    return renderTemplate(profile, templateVars({ name, description: 'x', profile }));
+  };
+  test('the banner stays well-formed XML for a name with &, < and quotes', () => {
+    const svg = rendered(`R&D <"tools">`, 'node').get('docs/assets/banner.svg');
+    assert.ok(svg.length < 2048, `banner is ${svg.length} bytes`);
+    assert.doesNotMatch(svg, /&(?!(#\d+|amp|lt|gt|quot|apos);)|\{\{/, 'no raw & and no leftover placeholder');
+    assert.doesNotMatch(svg.replace(/<\/?\w+(\s+[\w:-]+="[^"<]*")*\s*\/?>/g, ''), /[<>]/, 'every < and > belongs to a tag');
+    const stack = [];
+    for (const [, close, tag, self] of svg.matchAll(/<(\/?)(\w+)[^>]*?(\/?)>/g)) {
+      if (self) continue;
+      if (close) assert.equal(stack.pop(), tag, `</${tag}> closes its own tag`); else stack.push(tag);
+    }
+    assert.deepEqual(stack, [], 'all tags closed');
+    assert.match(svg, /role="img"/);
+    assert.match(svg, /<title id="t">R&#38;D &#60;&#34;tools&#34;&#62;<\/title>/);
+  });
+  test('quick start names the stack\'s own commands; only generic warns NOT VERIFIED; no CI badges', () => {
+    for (const [stack, cmds] of [['node', ['npm ci', 'npm test']], ['python', ['python -m pytest']], ['go', ['go test ./...']], ['rust', ['cargo test']], ['dotnet', ['dotnet restore', 'dotnet test']], ['generic', ['pwsh -NoProfile -File scripts/check.ps1']]]) {
+      const readme = rendered('demo', stack).get('README.md');
+      for (const c of cmds) assert.ok(readme.includes(`\n${c}\n`), `${stack}: ${c}`);
+      assert.equal(/NOT VERIFIED/.test(readme), stack === 'generic', stack);
+      assert.doesNotMatch(readme, /img\.shields\.io\/github\/actions|badge\.svg|\{\{/);
+    }
+  });
+  test('a name starting with a digit still gives a valid module identifier', () => {
+    assert.equal(templateVars({ name: '2048-solver', profile: inferProfile('a python cli') }).module, 'app_2048_solver');
+  });
+});
+
+test('protect: only GitHub\'s plan message is plan-gated; any other refusal is a failure', () => {
+  assert.equal(rulesetOutcome('HTTP 403: Upgrade to GitHub Pro or make this repository public to enable this feature.'), 'plan-gated');
+  assert.equal(rulesetOutcome('HTTP 403: Resource not accessible by personal access token'), 'failed');
+  assert.equal(rulesetOutcome('HTTP 404: Not Found'), 'failed');
+  assert.equal(rulesetOutcome(''), 'failed');
 });
 
 async function create(args) {
@@ -194,7 +245,7 @@ describe('final review: strict profiles, fail-closed generic check, verified pus
   const pwsh = (cwd) => run('pwsh', ['-NoProfile', '-File', 'scripts/check.ps1'], { cwd });
   test('the generic placeholder check fails closed until a real test command is listed', async (t) => {
     if ((await run('pwsh', ['-NoProfile', '-Command', 'exit 0'])).code !== 0) return t.skip('no PowerShell 7 here');
-    const p = await create(['gadget', 'A Rust service that ingests telemetry from field sensors']);
+    const p = await create(['gadget', 'A Zig service that ingests telemetry from field sensors']);
     assert.match(p.out, /check\.ps1 fails on purpose/);
     const none = await pwsh(p.dir);
     assert.equal(none.code, 2, 'placeholder must not pass');
@@ -223,10 +274,11 @@ describe('final review: strict profiles, fail-closed generic check, verified pus
     const at = order.map((c) => step5.indexOf(c));
     assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), `step 5 runs ${order.join(' -> ')} in order`);
     assert.match(skill, /proj new <name> "<description>" --kind <kind> .* --no-protect/, 'profile passed as flags: no temp file to write or delete');
-    assert.match(skill, /no `&&` chains, no `git -C`/);
+    assert.match(skill, /`cd <repo> && <command>`/);
+    assert.match(skill, /No other chains, no `git -C`/);
     const allowed = frontmatter(skill)['allowed-tools'];
-    for (const c of ['npm test', 'git add -A', 'git push origin main', 'git rev-parse HEAD', 'git ls-remote origin *', 'proj protect']) {
-      assert.ok(allowed.includes(`Bash(${c})`) && allowed.includes(`PowerShell(${c})`), `${c} pre-approved on both shells`);
+    for (const c of ['npm test', 'go test ./...', 'cargo test', 'dotnet test', 'git add -A', 'git push origin main', 'git rev-parse HEAD', 'git ls-remote origin *', 'proj protect']) {
+      for (const f of [c, `cd * && ${c}`]) assert.ok(allowed.includes(`Bash(${f})`) && allowed.includes(`PowerShell(${f})`), `${f} pre-approved on both shells`);
     }
 
     // The flow itself, against a local bare remote: create -> push -> tailor -> commit -> push -> remote == HEAD.

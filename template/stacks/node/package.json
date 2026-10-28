@@ -4,7 +4,7 @@
   "private": true,
   "description": "{{description}}",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22{{#ts}}.18{{/ts}}" },
   "scripts": {
     "test": "node --test"
   }

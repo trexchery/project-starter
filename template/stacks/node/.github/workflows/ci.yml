@@ -51,14 +51,17 @@ jobs:
           persist-credentials: false
       - name: Record the exact SHA under test
         if: steps.reuse.outputs.hit != 'true'
-        run: echo "Verified SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: echo "Testing SHA $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-node@v7
         if: steps.reuse.outputs.hit != 'true'
         with: { node-version: 24 }
       - run: npm ci
         if: steps.reuse.outputs.hit != 'true'
-      - run: npm test -- --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml
+      # Reporter flags via NODE_OPTIONS: node --test reads them, other runners (vitest, jest) ignore them.
+      - run: npm test
         if: steps.reuse.outputs.hit != 'true'
+        env:
+          NODE_OPTIONS: --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=junit.xml
       # Per-test-file durations, for finding slow tests (tiny artifact, kept 7 days).
       - uses: actions/upload-artifact@v7
         if: always() && steps.reuse.outputs.hit != 'true'

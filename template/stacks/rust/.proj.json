@@ -1,0 +1,11 @@
+{
+  "stack": "rust",
+  "checks": {
+    "affected": "cargo test",
+    "full": "cargo test",
+    "heavy": "cargo test --release -- --include-ignored"
+  },
+  "testGlobs": [],
+  "setup": "cargo build",
+  "test": "cargo test"
+}

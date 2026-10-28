@@ -6,5 +6,7 @@
     "heavy": null
   },
   "testGlobs": ["tests/**/test_*.py"],
+  "setup": "python -m pip install -e \".[test]\"",
+  "test": "python -m pytest",
   "bench": { "runs": 3, "setupSecs": 60, "variants": {} }
 }
