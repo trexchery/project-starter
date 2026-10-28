@@ -5,9 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { tmpDir } from './helpers.js';
-import { plan, poll, newServeState, runnerScript, dockerArgs, startDocker, setRouting, editServed, cmdHosted, LABEL, TARGET, OWN, RUNNER_VERSION } from '../lib/runner.js';
+import os from 'node:os';
+import { tmpDir, makeRepo, git, proj } from './helpers.js';
+import { plan, poll, newServeState, runnerScript, dockerArgs, startDocker, setRouting, editServed, cmdHosted, runnerPkg, LABEL, TARGET, RUNNER_VERSION } from '../lib/runner.js';
 import { runnerDefault } from '../lib/bootstrap.js';
+import { shotUrl } from '../lib/design.js';
 
 const SECRET = 'JITSECRETLITERAL0123456789';
 
@@ -53,9 +55,14 @@ describe('plan', { concurrency: true }, () => {
 // A fake world for poll(): repos, runners per repo, docker state, and a log of every gh call, docker command and action.
 function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, local = [], queued = {}, jobs = {}, slots, pool } = {}) {
   const w = { repos, docker, runners, local, queued, jobs, calls: [], started: [], acts: [], dock: [], exits: {}, refuse: new Set(), view: {}, vars: {}, t: T0 };
+  // repo view: w.view[repo] null = a transient failure (rate limit), { err } = an explicit gh error.
+  const view = (r) => {
+    const v = w.view[r] !== undefined ? w.view[r] : r === 'o/gone' ? { err: `GraphQL: Could not resolve to a Repository with the name '${r}'.` }
+      : { isPrivate: r !== 'o/public', isArchived: r === 'o/archived' };
+    return v === null ? { code: 1, out: '', err: 'HTTP 403: API rate limit exceeded' } : v.err ? { code: 1, out: '', err: v.err } : { code: 0, out: JSON.stringify(v), err: '' };
+  };
   const json = (args) => {
     w.calls.push(args);
-    if (args[0] === 'repo') return w.view[args[2]] !== undefined ? w.view[args[2]] : args[2] === 'o/gone' ? null : { isPrivate: args[2] !== 'o/public', isArchived: args[2] === 'o/archived' };
     const m = args[1].match(/^repos\/([^/]+\/[^/]+)\/actions\/(runners|runs)(?:\/(\d+)\/jobs)?/);
     if (m[2] === 'runners') return { runners: w.runners[m[1]] || [] };
     if (m[3]) return { jobs: w.jobs[m[3]] || [] };
@@ -68,11 +75,14 @@ function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, loc
     // GitHub refuses to delete a runner that holds a job: ids in w.refuse fail. w.vars holds PROJ_RUNS_ON per repo.
     gh: (args) => {
       w.calls.push(args);
+      if (args[0] === 'repo') return view(args[2]);
       if (args[0] === 'variable' && args[2] === 'PROJ_RUNS_ON') w.vars[args[4]] = args[1] === 'set' ? args[6] : undefined;
       return { code: args[2] === 'DELETE' && w.refuse.has(args[3].split('/').pop()) ? 1 : 0, out: '', err: '' }; },
-    run: (cmd, args) => {
+    // Every docker call carries a timeout (w.untimed lists any that does not); w.psHang = docker ps times out.
+    run: (cmd, args, o) => {
+      if (!(o?.timeout > 0)) (w.untimed ||= []).push(args[0]);
       if (args[0] === 'version') return { code: w.docker ? 0 : 1, out: '' };
-      if (args[0] === 'ps') return { code: 0, out: w.local.join('\n') };
+      if (args[0] === 'ps') return w.psHang ? { code: 127, out: '', err: 'spawnSync docker ETIMEDOUT' } : { code: 0, out: w.local.join('\n') };
       w.dock.push(args.join(' '));
       return { code: 0, out: '' };
     },
@@ -161,7 +171,7 @@ describe('poll', { concurrency: true }, () => {
     const st = newServeState();
     poll(st, w.io);
     assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/11'));
-    assert.deepEqual(w.dock, ['rm -f old']);
+    assert.deepEqual(w.dock, ['stop -t 30 old']);
     assert.ok(!cmds(w).some((c) => /runners\/(12|13)$/.test(c)), 'busy and young runners are left alone');
     assert.deepEqual(w.started, [], 'young and raced still cover pool 1');
     const w2 = world({ repos: ['o/a'] });
@@ -356,15 +366,14 @@ describe('poll', { concurrency: true }, () => {
     assert.deepEqual(w.started, ['o/a', 'o/a', 'o/b']);
   });
 
-  test('runners that never come online are removed and back off; two failures -> hosted; orphan offline runners deleted', () => {
-    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('stuck1', { id: 21, status: 'offline' }), runner(`${OWN}orphan`, { id: 22, status: 'offline' }), runner('proj-docker-otherpc-1', { id: 23, status: 'offline' })] },
+  test('runners that never come online are removed and back off; two failures -> hosted', () => {
+    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('stuck1', { id: 21, status: 'offline' }), runner('proj-docker-otherpc-1', { id: 23, status: 'offline' })] },
       local: [`stuck1\to/a\t${ago(6)}`] });
     const st = newServeState();
     st.pulled = true;
     poll(st, w.io);
     assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/21'));
-    assert.ok(w.dock.includes('rm -f stuck1'));
-    assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/22'), 'own orphan removed');
+    assert.ok(w.dock.includes('stop -t 30 stuck1'));
     assert.ok(!cmds(w).some((c) => c.endsWith('runners/23')), "another machine's runner is not ours");
     assert.equal(st.fails, 1);
     assert.deepEqual(w.started, [], 'backing off after a failed start');
@@ -381,8 +390,9 @@ describe('poll', { concurrency: true }, () => {
     assert.deepEqual(w.started, ['o/a'], 'retries after the backoff');
   });
 
-  test('a repo that leaves the live set gets PROJ_RUNS_ON deleted and its containers stopped', () => {
-    const w = world({ repos: ['o/a', 'o/b', 'o/c'], local: ['ca\to/a', 'cb\to/b', 'cc\to/c'], runners: { 'o/a': [runner('ca')], 'o/b': [runner('cb', { busy: true })], 'o/c': [runner('cc')] } });
+  test('a repo that leaves the live set gets PROJ_RUNS_ON deleted and its idle containers unregistered, then stopped; busy ones finish', () => {
+    const w = world({ repos: ['o/a', 'o/b', 'o/c'], local: ['ca\to/a', 'cb\to/b', 'cc\to/c'],
+      runners: { 'o/a': [runner('ca', { id: 1 })], 'o/b': [runner('cb', { id: 2, busy: true })], 'o/c': [runner('cc', { id: 3 })] } });
     const st = newServeState();
     for (let i = 0; i < 10; i++) poll(st, w.io);
     w.repos = ['o/a', 'o/c'];          // removed from config
@@ -390,14 +400,68 @@ describe('poll', { concurrency: true }, () => {
     poll(st, w.io);
     assert.deepEqual(st.live, ['o/a']);
     for (const r of ['o/b', 'o/c']) assert.ok(cmds(w).includes(`variable delete PROJ_RUNS_ON -R ${r}`), r);
-    assert.deepEqual(w.dock, ['rm -f cb', 'rm -f cc']);
+    assert.ok(w.acts.indexOf('remove runner cc from o/c') < w.acts.indexOf('stop container cc'), 'unregistered first');
+    assert.deepEqual(w.dock, ['stop -t 30 cc'], 'cb holds a job: never stopped');
+    w.local = ['ca\to/a', 'cb\to/b']; w.runners['o/c'] = []; // cc is gone
+    w.runners['o/b'] = [runner('cb', { id: 2 })]; // its job finished; the container is still up
+    poll(st, w.io);
+    assert.deepEqual(w.dock, ['stop -t 30 cc', 'stop -t 30 cb']);
     assert.ok(!cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
-    w.view['o/a'] = null;             // unreadable once (API blip): still served
-    for (let i = 0; i < 10; i++) poll(st, w.io);
+  });
+
+  test('refresh drops a repo only on an explicit answer: a failing repo view (rate limit, network) never drops it', () => {
+    const w = world({ repos: ['o/a', 'o/new'], local: ['ca\to/a'], runners: { 'o/a': [runner('ca', { id: 1, busy: true })] } });
+    w.view['o/new'] = null; // never readable yet: not served (no routing to a repo serve cannot vouch for)
+    const st = newServeState();
+    poll(st, w.io);
     assert.deepEqual(st.live, ['o/a']);
+    w.view['o/a'] = null;
+    for (let i = 0; i < 40; i++) poll(st, w.io);
+    assert.deepEqual(st.live, ['o/a'], 'four failed refreshes in a row: still served');
+    assert.ok(!w.acts.some((a) => /^(delete PROJ_RUNS_ON|stop container)/.test(a)));
+    w.view['o/a'] = { err: "GraphQL: Could not resolve to a Repository with the name 'o/a'." };
     for (let i = 0; i < 10; i++) poll(st, w.io);
-    assert.deepEqual(st.live, [], 'unreadable twice in a row (deleted): dropped');
+    assert.deepEqual(st.live, [], 'not found: dropped');
     assert.ok(cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
+    assert.ok(!w.dock.some((d) => d.startsWith('stop')), 'its busy runner keeps its job');
+  });
+
+  test('orphan cleanup deletes only offline registrations this serve started, never another host\'s or a manual start\'s', () => {
+    const host = os.hostname().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const w = world({ repos: ['o/a'], slots: 1 });
+    const st = newServeState();
+    st.pulled = true;
+    poll(st, w.io);
+    assert.deepEqual(w.started, ['o/a']);
+    w.local = ['proj-docker-new-1\to/a']; w.runners['o/a'] = [runner('proj-docker-new-1', { id: 31 })];
+    w.t += 60000;
+    poll(st, w.io);
+    w.local = []; // its container was killed; the registration stays, offline
+    w.runners['o/a'] = [runner('proj-docker-new-1', { id: 31, status: 'offline' }),
+      runner(`proj-docker-${host}-2-10271200-abcd`, { id: 32, status: 'offline' }), // host "<this>-2"
+      runner(`proj-docker-${host}-10271200-beef`, { id: 33, status: 'offline' })];  // a manual start, image still pulling
+    w.t += 60000;
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/31'), 'own orphan removed');
+    assert.ok(!cmds(w).some((c) => /runners\/3[23]$/.test(c)), 'not ours: left alone');
+    assert.equal(st.own.has('proj-docker-new-1'), false);
+  });
+
+  test('every docker call has a timeout; docker ps timing out counts as docker down', () => {
+    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('old', { id: 11 })] }, local: [`old\to/a\t${ago(25)}`] });
+    const st = newServeState();
+    poll(st, w.io); // pull, stop, ps, version
+    assert.ok(w.dock.some((d) => d.startsWith('stop')) && w.dock.some((d) => d.startsWith('pull')));
+    assert.equal(w.untimed, undefined, `untimed: ${w.untimed}`);
+    w.psHang = true;
+    w.t += 60000; poll(st, w.io);
+    w.t += 60000; poll(st, w.io);
+    assert.equal(st.hosted, true, 'two polls with docker ps hanging: GitHub-hosted');
+    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'runner.js'), 'utf8');
+    const calls = [...src.matchAll(/\brun\('docker', \[[^\]]*\]([^;]*)/g)];
+    assert.ok(calls.length >= 4);
+    for (const [c, rest] of calls) assert.match(rest, /timeout/, c);
+    assert.doesNotMatch(src, /'rm', '-f'|--force/, 'no --force anywhere');
   });
 
   test('heartbeat: written before PROJ_RUNS_ON is set, every 5 min while self-hosted, never while hosted', () => {
@@ -437,7 +501,7 @@ describe('poll', { concurrency: true }, () => {
       (w.runners[repo] ||= []).push(runner(name, { id: 1000 + seen.started }));
     }
     for (; seen.dock < w.dock.length; seen.dock++) {
-      const name = w.dock[seen.dock].match(/^rm -f (.+)/)?.[1];
+      const name = w.dock[seen.dock].match(/^stop -t 30 (.+)/)?.[1];
       if (!name) continue;
       w.local = w.local.filter((l) => !l.startsWith(`${name}\t`));
       for (const r of Object.keys(w.runners)) w.runners[r] = w.runners[r].filter((x) => x.name !== name);
@@ -566,7 +630,7 @@ describe('poll', { concurrency: true }, () => {
         poll(st, w.io);
         assert.notEqual(st.hosted, true, `hosted at T0+${(w.t - T0) / 1000}s`);
         for (; docked < w.dock.length; docked++) {
-          const name = w.dock[docked].match(/^rm -f (.+)/)?.[1];
+          const name = w.dock[docked].match(/^stop -t 30 (.+)/)?.[1];
           if (!name) continue;
           if (name === 'ps0') { recycledAt = w.t; recycledWithBacklog = jobs.some((j) => j.status === 'queued' && j.at <= w.t); }
           drop(name);
@@ -665,29 +729,77 @@ describe('runner token handling', { concurrency: true }, () => {
 });
 
 describe('bootstrap default-on', { concurrency: true }, () => {
-  test('a new private repo joins runner.serve and gets PROJ_RUNS_ON, only on a machine that opted in', () => {
+  test('a new private repo joins runner.serve only on a machine that opted in; only serve sets PROJ_RUNS_ON; generic stays hosted', () => {
     const file = path.join(tmpDir('cfg-'), 'config.json');
-    const calls = [];
-    const ghFn = (a) => { calls.push(a.join(' ')); return { code: 0 }; };
-    assert.equal(runnerDefault('o/new', { ghFn, configFile: file }), false, 'no config: not opted in');
+    const node = { stack: 'node', configFile: file };
+    assert.equal(runnerDefault('o/new', node), false, 'no config: not opted in');
     fs.writeFileSync(file, JSON.stringify({ owner: 'o', runner: { cpus: 4 } }));
-    assert.equal(runnerDefault('o/new', { ghFn, configFile: file }), false, 'runner without serve: not opted in');
-    assert.deepEqual(calls, []);
+    assert.equal(runnerDefault('o/new', node), false, 'runner without serve: not opted in');
     fs.writeFileSync(file, JSON.stringify({ owner: 'o', runner: { cpus: 4, serve: { repos: ['o/old'], slots: 3 } } }));
-    assert.equal(runnerDefault('o/new', { ghFn, configFile: file }), true);
-    assert.equal(runnerDefault('o/new', { ghFn, configFile: file }), true);
+    assert.equal(runnerDefault('o/gen', { stack: 'generic', configFile: file }), false, 'generic CI needs pwsh, absent from the runner image');
+    assert.equal(runnerDefault('o/new', node), true);
+    assert.equal(runnerDefault('o/new', { ...node, stack: 'python' }), true);
     const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.deepEqual(cfg.runner.serve, { repos: ['o/old', 'o/new'], slots: 3 });
     assert.equal(cfg.owner, 'o');
-    assert.deepEqual(calls, [`variable set PROJ_RUNS_ON -R o/new --body ${TARGET}`, `variable set PROJ_RUNS_ON -R o/new --body ${TARGET}`]);
     assert.equal(editServed('o/new', false, file), true);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).runner.serve.repos, ['o/old']);
+    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'runner.js'), 'utf8');
+    assert.doesNotMatch(src.slice(src.indexOf("if (sub === 'use')"), src.indexOf("if (sub === 'clean')")), /setRouting\(slug, (true|on)\)/, '`proj runner use` never routes directly');
+  });
+
+  test('a served repo is routed by serve only after a heartbeat', () => {
+    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('r1')] }, local: ['r1\to/a'] });
+    poll(newServeState(), w.io);
+    const c = cmds(w);
+    assert.ok(c.findIndex((x) => x.startsWith('variable set PROJ_RUNS_ON_HEARTBEAT')) < c.findIndex((x) => x.startsWith('variable set PROJ_RUNS_ON ')));
+  });
+
+  test('proj runner use refuses a generic-stack repo: its CI needs pwsh, which the runner image lacks', async () => {
+    const repo = await makeRepo({ projJson: { stack: 'generic' } });
+    await git(repo.root, 'remote', 'set-url', 'origin', 'https://github.com/o/a.git');
+    const r = await repo.proj(['runner', 'use']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.err, /generic stack's CI needs tools the runner image lacks \(pwsh\)/);
   });
 
   test('cmdNew calls the default only for a private repo it just created', () => {
     const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'bootstrap.js'), 'utf8');
-    assert.match(src, /if \(vis === '--private'\) runnerDefault\(slug\);/);
+    assert.match(src, /if \(vis === '--private'\) runnerDefault\(slug, \{ stack: profile\.stack \}\);/);
     assert.equal(src.match(/runnerDefault\(/g).length, 2, 'one definition, one call');
+  });
+
+  test('host runner package matches this machine: arm64 or x64', () => {
+    assert.equal(runnerPkg('darwin', 'arm64'), `actions-runner-osx-arm64-${RUNNER_VERSION}.tar.gz`);
+    assert.equal(runnerPkg('linux', 'x64'), `actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz`);
+    assert.equal(runnerPkg('win32', 'x64'), `actions-runner-win-x64-${RUNNER_VERSION}.zip`);
+    assert.equal(runnerPkg('linux', 'arm64'), `actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz`);
+  });
+});
+
+describe('proj review and proj shot input checks', { concurrency: true }, () => {
+  test('proj review needs an explicit --verdict: a bare call records nothing', async () => {
+    const repo = await makeRepo();
+    const r = await repo.proj(['review']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.err, /--verdict pass\|fail/);
+    assert.ok(!fs.existsSync(path.join(repo.root, '.git', 'proj', 'state.json')) || !Object.keys(repo.state().reviews || {}).length);
+    assert.equal((await repo.proj(['review', '--verdict', 'fail'])).code, 0);
+    assert.deepEqual(Object.values(repo.state().reviews).flat().map((x) => x.verdict), ['fail']);
+  });
+
+  test("proj shot keeps a '#' that belongs to the path and rejects a non-numeric --delay", async () => {
+    const dir = path.join(tmpDir('shot-'), 'issue#12');
+    fs.mkdirSync(dir);
+    const page = path.join(dir, 'p.html');
+    fs.writeFileSync(page, '<!doctype html>');
+    assert.match(shotUrl(page), /\/issue%2312\/p\.html$/);
+    assert.match(shotUrl(`${page}#menu`), /\/issue%2312\/p\.html#menu$/);
+    assert.match(shotUrl(path.join(dir, 'missing.html#err')), /\/missing\.html#err$/);
+    assert.equal(shotUrl('https://x.test/a#b'), 'https://x.test/a#b');
+    const r = await proj(['shot', page, path.join(dir, 'p.png'), '--delay', 'soon'], { cwd: dir });
+    assert.notEqual(r.code, 0);
+    assert.match(r.err, /--delay must be a number/);
   });
 });
 
