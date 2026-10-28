@@ -3,7 +3,8 @@ name: Runner watchdog
 # asleep, killed), PROJ_RUNS_ON stays set and proj jobs would wait up to 24 h. Every 15 min, for each repo in the
 # secret PROJ_WATCHDOG_REPOS whose PROJ_RUNS_ON_HEARTBEAT (unix time, serve writes it every 5 min) is over 10 min
 # old: delete PROJ_RUNS_ON (CI goes GitHub-hosted) and cancel + re-run runs queued on proj-ephemeral. serve sets
-# PROJ_RUNS_ON again when it is back. Repos without a heartbeat are left alone.
+# PROJ_RUNS_ON again with its next heartbeat once it is alive (within 5 min; it re-sets it with every heartbeat).
+# Repos without a heartbeat are left alone.
 on:
   schedule:
     - cron: '*/15 * * * *'
