@@ -54,7 +54,8 @@ Opt in per machine in `~/.proj/config.json` (a repo's `.proj.json` cannot):
   stopped (a repo the API cannot read is dropped on the second check in a row, about 20 polls).
 - Fallback to GitHub-hosted (serve deletes `PROJ_RUNS_ON`, cancels runs whose jobs waited over 5 minutes on
   `proj-ephemeral`, and re-runs them, since runs-on is evaluated at queue time) when `docker version` fails two
-  polls in a row, when a proj job waited over 5 minutes while a slot was free, or after two started runners in a
+  polls in a row, when a proj job waited over 5 minutes while a slot was really free and no runner of its repo was
+  idle or starting (a run with a proj job in progress never counts and is never cancelled), or after two started runners in a
   row never came online (failed starts also back off, up to 30 minutes). Healthy again (and at least 30 minutes
   after a stuck-job or failed-start fallback), serve sets `PROJ_RUNS_ON` back. Cancelled runs are re-run either
   way. Stopping serve (Ctrl+C, SIGTERM) also switches CI to GitHub-hosted; the next start switches it back.
@@ -79,7 +80,8 @@ schtasks /Run /TN "proj runner serve"
 when it runs).
 
 PC off, asleep or serve killed: serve writes the repo variable `PROJ_RUNS_ON_HEARTBEAT` (unix time) every 5
-minutes while CI is routed here, and the optional [runner watchdog](runner-watchdog.yml) (every 15 minutes, about 10
+minutes while CI is routed here (and right after its first image pull), sets `PROJ_RUNS_ON` again with each one (so
+a deletion by the watchdog is undone within 5 minutes once serve is alive again), and the optional [runner watchdog](runner-watchdog.yml) (every 15 minutes, about 10
 seconds on `ubuntu-latest`) deletes `PROJ_RUNS_ON` and re-runs proj-queued runs when that heartbeat is over 10
 minutes old. Nothing installs it. To use it, copy it to `.github/workflows/` of one repo and add two Actions
 secrets there: `PROJ_WATCHDOG_REPOS` (the served repos, space separated; masked in logs) and `PROJ_WATCHDOG_TOKEN`
