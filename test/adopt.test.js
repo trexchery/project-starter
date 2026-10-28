@@ -61,6 +61,18 @@ describe('proj adopt', { concurrency: true }, () => {
     assert.doesNotMatch(rr.out, /\+ src\/|Cargo\.toml/);
   });
 
+  test('a package.json repo with tsconfig.json or a typescript dependency is the typescript stack; without, node', async () => {
+    const cases = [[{ 'package.json': '{"name":"a"}\n', 'tsconfig.json': '{}\n' }, 'typescript'],
+      [{ 'package.json': '{"name":"a","devDependencies":{"typescript":"^5.6.0"}}\n' }, 'typescript'],
+      [{ 'package.json': '{"name":"a"}\n' }, 'node']];
+    for (const [files, stack] of cases) {
+      const repo = await makeRepo({ files });
+      const r = await repo.proj(['adopt', '--dry-run']);
+      assert.equal(r.code, 0, r.err);
+      assert.match(r.out, new RegExp(`profile: \\S+ on ${stack}\\b`), JSON.stringify(files));
+    }
+  });
+
   test('a requirements.txt repo gets no skeleton, and is told what CI still expects', async () => {
     const repo = await makeRepo({ files: { 'requirements.txt': 'requests\n', 'app.py': 'print(1)\n' } });
     const r = await repo.proj(['adopt']);

@@ -409,6 +409,20 @@ describe('poll', { concurrency: true }, () => {
     assert.ok(!cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
   });
 
+  test('a repo removed from config (proj runner use --hosted) is dropped on the next poll, not the next refresh: never heartbeat or routed again', () => {
+    const w = world({ repos: ['o/a', 'o/b'], runners: { 'o/a': [runner('ra')], 'o/b': [runner('rb')] }, local: ['ra\to/a', 'rb\to/b'] });
+    const st = newServeState();
+    poll(st, w.io);
+    assert.equal(w.vars['o/b'], TARGET);
+    w.repos = ['o/a'];
+    w.calls.length = 0;
+    for (let i = 0; i < 5; i++) { w.t += 6 * 60000; poll(st, w.io); }
+    assert.deepEqual(st.live, ['o/a']);
+    assert.equal(w.vars['o/b'], undefined, 'PROJ_RUNS_ON deleted');
+    assert.ok(!cmds(w).some((c) => /^variable set .* -R o\/b /.test(c)), 'no heartbeat or routing for o/b');
+    assert.ok(cmds(w).some((c) => c.startsWith('variable set PROJ_RUNS_ON_HEARTBEAT -R o/a ')), 'o/a still served');
+  });
+
   test('refresh drops a repo only on an explicit answer: a failing repo view (rate limit, network) never drops it', () => {
     const w = world({ repos: ['o/a', 'o/new'], local: ['ca\to/a'], runners: { 'o/a': [runner('ca', { id: 1, busy: true })] } });
     w.view['o/new'] = null; // never readable yet: not served (no routing to a repo serve cannot vouch for)
@@ -739,11 +753,13 @@ describe('bootstrap default-on', { concurrency: true }, () => {
     assert.equal(runnerDefault('o/gen', { stack: 'generic', configFile: file }), false, 'generic CI needs pwsh, absent from the runner image');
     assert.equal(runnerDefault('o/new', node), true);
     assert.equal(runnerDefault('o/new', { ...node, stack: 'python' }), true);
+    assert.equal(runnerDefault('o/ts', { ...node, stack: 'typescript' }), true, 'typescript renders node CI');
+    assert.equal(runnerDefault('o/rs', { ...node, stack: 'rust' }), false);
     const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.deepEqual(cfg.runner.serve, { repos: ['o/old', 'o/new'], slots: 3 });
+    assert.deepEqual(cfg.runner.serve, { repos: ['o/old', 'o/new', 'o/ts'], slots: 3 });
     assert.equal(cfg.owner, 'o');
     assert.equal(editServed('o/new', false, file), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).runner.serve.repos, ['o/old']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).runner.serve.repos, ['o/old', 'o/ts']);
     const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'runner.js'), 'utf8');
     assert.doesNotMatch(src.slice(src.indexOf("if (sub === 'use')"), src.indexOf("if (sub === 'clean')")), /setRouting\(slug, (true|on)\)/, '`proj runner use` never routes directly');
   });
@@ -755,12 +771,17 @@ describe('bootstrap default-on', { concurrency: true }, () => {
     assert.ok(c.findIndex((x) => x.startsWith('variable set PROJ_RUNS_ON_HEARTBEAT')) < c.findIndex((x) => x.startsWith('variable set PROJ_RUNS_ON ')));
   });
 
-  test('proj runner use refuses a generic-stack repo: its CI needs pwsh, which the runner image lacks', async () => {
-    const repo = await makeRepo({ projJson: { stack: 'generic' } });
-    await git(repo.root, 'remote', 'set-url', 'origin', 'https://github.com/o/a.git');
-    const r = await repo.proj(['runner', 'use']);
-    assert.notEqual(r.code, 0);
-    assert.match(r.err, /generic stack's CI needs tools the runner image lacks \(pwsh\)/);
+  test('proj runner use refuses a stack whose CI toolchain the runner image lacks, naming it; typescript passes that check', async () => {
+    for (const [stack, tool] of [['generic', 'pwsh'], ['rust', 'cargo']]) {
+      const repo = await makeRepo({ projJson: { stack } });
+      await git(repo.root, 'remote', 'set-url', 'origin', 'https://github.com/o/a.git');
+      const r = await repo.proj(['runner', 'use']);
+      assert.notEqual(r.code, 0);
+      assert.match(r.err, new RegExp(`${stack} stack's CI toolchain \\(${tool}\\) is not in the runner image`));
+    }
+    const ts = await makeRepo({ projJson: { stack: 'typescript' } });
+    await git(ts.root, 'remote', 'set-url', 'origin', 'https://github.com/o/a.git');
+    assert.doesNotMatch((await ts.proj(['runner', 'use', '--dry-run'])).err, /runner image/);
   });
 
   test('cmdNew calls the default only for a private repo it just created', () => {

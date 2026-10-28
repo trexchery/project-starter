@@ -41,6 +41,18 @@ describe('profile inference', () => {
     ['A crate for parsing dates', { kind: 'library', stack: 'rust' }],
     ['A C library for ring buffers', { kind: 'library', stack: 'generic', uncertain: [] }],
     ["Let's go build something", { stack: 'generic', kind: 'other', uncertain: ['kind', 'stack'] }],
+    // "game(s)" as a topic is not a game; a leading "Go" is the language only before a product word; C#/.NET with slashes
+    ['A CLI that tracks my board games collection', { kind: 'cli' }],
+    ['A library for parsing chess games', { kind: 'library' }],
+    ['An API that serves game scores', { kind: 'api' }],
+    ['A games leaderboard API in Go', { kind: 'api', stack: 'go' }],
+    ['Go-to dashboard for sales', { kind: 'web-app', stack: 'node' }],
+    ['Go through my inbox and archive newsletters, a CLI', { kind: 'cli', stack: 'generic' }],
+    ['Go CLI for backups', { kind: 'cli', stack: 'go' }],
+    ['A Go REST API', { kind: 'api', stack: 'go' }],
+    ['A C#/.NET API', { kind: 'api', stack: 'dotnet' }],
+    ['An ASP.NET/C# web API', { kind: 'api', stack: 'dotnet' }],
+    ['A .NET/C# tool', { stack: 'dotnet' }],
   ];
   for (const [text, want] of cases) {
     test(text, () => {

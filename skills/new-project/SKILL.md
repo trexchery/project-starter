@@ -60,7 +60,7 @@ In the new repository:
   | PHP | `vendor/bin/phpunit` | `shivammathur/setup-php`, `composer install` | composer | vendor/ |
   | Swift | `swift test` | none (macOS runners bill 10x: prefer Linux) | swift | .build/ |
   | Dart/Flutter | `dart test` / `flutter test` | `dart-lang/setup-dart` / `subosito/flutter-action` | pub | .dart_tool/, build/ |
-  | C/C++ | `cmake -B build && ctest --test-dir build` | none (gcc, cmake preinstalled) | none | build/ |
+  | C/C++ | `cmake -B build && cmake --build build && ctest --test-dir build --output-on-failure` | none (gcc, cmake preinstalled) | none | build/ |
   | Elixir | `mix test` | `erlef/setup-beam` | mix | _build/, deps/ |
   | Zig | `zig build test` | `mlugg/setup-zig` | none | zig-out/, .zig-cache/ |
 

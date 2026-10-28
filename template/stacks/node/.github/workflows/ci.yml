@@ -57,6 +57,11 @@ jobs:
         with: { node-version: 24 }
       - run: npm ci
         if: steps.reuse.outputs.hit != 'true'
+{{#ts}}
+      # Node strips types without checking them; tsc does (an adopted repo without the script skips this step).
+      - run: npm run typecheck --if-present
+        if: steps.reuse.outputs.hit != 'true'
+{{/ts}}
       # Reporter flags via NODE_OPTIONS: node --test reads them, other runners (vitest, jest) ignore them.
       - run: npm test
         if: steps.reuse.outputs.hit != 'true'

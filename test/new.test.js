@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { proj, git, run, tmpDir, exists, read, write } from './helpers.js';
+import { templateVars } from '../lib/bootstrap.js';
 
 const placeholders = (text) => text.replace(/\$\{\{[\s\S]*?\}\}/g, '').match(/\{\{\s*\w+\s*\}\}/g) || [];
 
@@ -64,6 +65,15 @@ describe('proj new', { concurrency: true }, () => {
       assert.match(res.out, /\b(pass 1|1 passed|Passed:\s+1|test result: ok\. 1 passed|ok\s)/, 'one real test ran');
     });
   }
+
+  test('the module identifier is never a keyword or clashing name in C#, Go, Rust or Python', () => {
+    const mod = (name) => templateVars({ name, profile: { stack: 'python', kind: 'other', sensitive: [] } }).module;
+    assert.equal(mod('class'), 'class_app');
+    assert.equal(mod('Test'), 'test_app');
+    assert.equal(mod('func'), 'func_app');
+    assert.equal(mod('my-app'), 'my_app');
+    assert.equal(mod('9lives'), 'app_9lives');
+  });
 
   test('refuses a non-empty directory and leaves it alone', async () => {
     const parent = tmpDir('new-');
