@@ -30,7 +30,7 @@ proj status                      # implemented / tested / reviewed / CI-verified
 | One run per commit | CI templates skip drafts (no runner, 0 minutes), run on `ready_for_review`, cancel superseded runs, and reuse an earlier pass of the same workflow for the same commit |
 | Profiling | `proj perf`: per-test-file timings (JUnit), job and step durations, billed minutes (OS multipliers; self-hosted and Dependabot free), duplicate and cancelled-run waste, regressions and timeout advice |
 | Benchmarks | `proj bench` measures `bench.variants` and `bench.shardCmd` x `bench.shards`, estimates CI wall-clock and billed minutes, and recommends only a variant that passes, keeps every test and does not raise billed minutes beyond 25% |
-| Self-hosted CI | `proj runner use` routes same-repo PRs not opened by bots to one-job runners; `proj runner start --docker` starts one in a capped container (single-use JIT config on stdin, all capabilities dropped). `proj runner serve` keeps a docker pool ready for every served repo (below); `proj runner hosted` moves them all to GitHub-hosted. Private repos only |
+| Self-hosted CI | `proj runner use` adds a repo to `proj runner serve`, which routes same-repo PRs not opened by bots to one-job runners; `proj runner start --docker` starts one in a capped container (single-use JIT config on stdin, all capabilities dropped). `proj runner serve` keeps a docker pool ready for every served repo (below); `proj runner hosted` moves them all to GitHub-hosted. Private repos only |
 
 ## Self-hosted runner pool (`proj runner serve`)
 
@@ -40,8 +40,11 @@ Opt in per machine in `~/.proj/config.json` (a repo's `.proj.json` cannot):
 { "runner": { "serve": { "repos": [], "slots": 3, "pool": 1, "cpus": 4, "memory": "8g", "pollSec": 60, "idleMinutes": 20, "maxMinutes": 60 } } }
 ```
 
-- With `runner.serve` present, `proj new` adds every new **private** repo to `repos` and sets `PROJ_RUNS_ON`
-  (public repos never). `proj runner use` / `use --hosted` adds or removes an existing repo.
+- With `runner.serve` present, `proj new` adds every new **private** node or python repo to `repos` (public repos
+  never). `proj runner use` / `use --hosted` adds or removes an existing repo. Only serve sets `PROJ_RUNS_ON`, after a
+  heartbeat and only while it runs (its next repo check, within about 15 minutes), so a repo is never routed to a
+  machine that is off. Generic-stack repos stay GitHub-hosted: their CI runs `pwsh`, which the runner image
+  (`ghcr.io/actions/actions-runner`) does not ship.
 - Every `pollSec` serve lists each repo's runners (one API call per repo; under 300 calls an hour for 3 repos) and
   starts `pool - idle` ephemeral containers, never more than `slots` at once (`slots` x `cpus` x `memory`),
   counting containers it spawned that `docker ps` does not list yet. The image is pulled once before the first
@@ -49,9 +52,12 @@ Opt in per machine in `~/.proj/config.json` (a repo's `.proj.json` cannot):
 - An unused pool runner is unregistered and stopped after `idleMinutes` (never one holding a job: GitHub refuses
   the unregister). A container's hard stop is `idleMinutes + maxMinutes + 10` minutes from its start, so a job
   picked up late still gets `maxMinutes` (set it to your longest job; the job's own `timeout-minutes` applies too).
-  Offline registrations this machine left behind are deleted.
-- A repo that becomes public, archived, deleted or leaves `repos` gets `PROJ_RUNS_ON` deleted and its containers
-  stopped (a repo the API cannot read is dropped on the second check in a row, about 20 polls).
+  Offline registrations that this serve process started are deleted (never another machine's, and never one from
+  `proj runner start`; `proj runner clean` removes leftovers). Containers are stopped with `docker stop` (they run
+  with `--rm`), and every docker call times out after 20 seconds (docker counts as down for that poll).
+- A repo that becomes public, archived, deleted (not found) or leaves `repos` gets `PROJ_RUNS_ON` deleted and its
+  idle containers unregistered and stopped; a runner holding a job finishes it. A failed repo check (rate limit,
+  network) never drops a repo.
 - Fallback to GitHub-hosted (serve deletes `PROJ_RUNS_ON`, cancels runs whose jobs waited over 5 minutes on
   `proj-ephemeral`, and re-runs them, since runs-on is evaluated at queue time) when `docker version` fails two
   polls in a row, when a proj job waited over 5 minutes while a slot was really free and no runner of its repo was
