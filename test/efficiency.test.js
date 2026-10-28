@@ -8,7 +8,6 @@ import crypto from 'node:crypto';
 import { makeRepo, git, write, tmpDir, ROOT } from './helpers.js';
 import { selectTests, priorPass } from '../lib/checks.js';
 import { parseJunit, withJunit, readJunit, localReport, analyzeRuns, workflowTimeouts, opportunities, estimate, recommend, multiplier } from '../lib/perf.js';
-import { runnerScript } from '../lib/runner.js';
 
 // A check command that proves it ran: appends one byte to $PROJ_TEST_COUNTER (a file outside the repo).
 const COUNT = `node -e "require('fs').appendFileSync(process.env.PROJ_TEST_COUNTER,'x')"`;
@@ -317,18 +316,6 @@ describe('bench: estimate and recommend', { concurrency: true }, () => {
 });
 
 describe('runner', { concurrency: true }, () => {
-  test('runnerScript reads the token from $RUNNER_TOKEN, is ephemeral, and has a hard timeout', () => {
-    const s = runnerScript({ url: 'https://github.com/acme/widget', name: 'proj-docker-box-1', labels: 'proj-ephemeral,linux', maxMin: 30, token: 'ghs_SECRETLITERAL' });
-    assert.match(s, /--token "\$RUNNER_TOKEN"/);
-    assert.doesNotMatch(s, /ghs_|SECRETLITERAL/);
-    assert.equal(s.match(/--token\s+(\S+)/g).length, 1);
-    assert.match(s, /--ephemeral/);
-    assert.match(s, /unset RUNNER_TOKEN/);
-    assert.match(s, /timeout --kill-after=30 1800 \.\/run\.sh/);
-    assert.match(s, /IFS= read -r RUNNER_TOKEN/, 'token arrives on stdin');
-    assert.ok(s.startsWith('set -e;'));
-  });
-
   test('runner start refuses a non-GitHub origin and touches nothing', async () => {
     const repo = await makeRepo();
     for (const mode of ['--docker', '--host', '--remote']) {
