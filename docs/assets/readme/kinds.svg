@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="t d">
+<title id="t">What project-starter fits</title>
+<desc id="d">Kinds: web app, website, mobile app and game, which also get the Creative Director kit, plus API, CLI, library and data. Languages with real skeleton tests: JavaScript and TypeScript, Python, Go, Rust and C#. Any other language works through a check script.</desc>
+<style>
+.sans{font-family:'Segoe UI Variable Display','Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif}
+.l{font-size:13px;font-weight:700;letter-spacing:1.5px;fill:#64748b}
+.c{font-size:17px;font-weight:600;fill:#e2e8f0}
+.s{font-size:13px;fill:#94a3b8}
+</style>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#1e293b"/></linearGradient></defs>
+<rect width="1200" height="300" rx="20" fill="url(#bg)"/>
+<g class="sans">
+<text x="40" y="50" class="l">KINDS</text>
+<circle cx="913" cy="45" r="5" fill="#34d399"/><text x="926" y="50" class="s">also gets the Creative Director kit</text>
+<g fill="#111827" stroke="#334155">
+<rect x="40" y="70" width="128" height="56" rx="12"/><rect x="180" y="70" width="128" height="56" rx="12"/>
+<rect x="320" y="70" width="128" height="56" rx="12"/><rect x="460" y="70" width="128" height="56" rx="12"/>
+<rect x="600" y="70" width="128" height="56" rx="12"/><rect x="740" y="70" width="128" height="56" rx="12"/>
+<rect x="880" y="70" width="128" height="56" rx="12"/><rect x="1020" y="70" width="140" height="56" rx="12"/>
+</g>
+<g fill="#34d399"><circle cx="156" cy="82" r="4"/><circle cx="296" cy="82" r="4"/><circle cx="436" cy="82" r="4"/><circle cx="576" cy="82" r="4"/></g>
+<g text-anchor="middle" class="c">
+<text x="104" y="104">web app</text><text x="244" y="104">website</text>
+<text x="384" y="104">mobile app</text><text x="524" y="104">game</text>
+<text x="664" y="104">API</text><text x="804" y="104">CLI</text>
+<text x="944" y="104">library</text><text x="1090" y="104">data</text>
+</g>
+<text x="40" y="180" class="l">REAL SKELETON TESTS</text>
+<g fill="#111827" stroke="#334155">
+<rect x="40" y="200" width="150" height="56" rx="12"/><rect x="202" y="200" width="150" height="56" rx="12"/>
+<rect x="364" y="200" width="150" height="56" rx="12"/><rect x="526" y="200" width="150" height="56" rx="12"/>
+<rect x="688" y="200" width="150" height="56" rx="12"/>
+</g>
+<rect x="850" y="200" width="310" height="56" rx="12" fill="none" stroke="#34d399" stroke-dasharray="6 5"/>
+<g text-anchor="middle" class="c">
+<text x="115" y="234">JS / TS</text><text x="277" y="234">Python</text>
+<text x="439" y="234">Go</text><text x="601" y="234">Rust</text><text x="763" y="234">C#</text>
+<text x="1005" y="234" fill="#34d399">any other, via check script</text>
+</g>
+</g>
+</svg>
