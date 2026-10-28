@@ -169,8 +169,8 @@ describe('poll', { concurrency: true }, () => {
     w.t += 60000;
     poll(st, w.io);
     assert.equal(w.started.length, 3, 'two listed, one still spawning: 3 of 3');
-    w.exits['proj-docker-new-3']();  // its docker client exited (the container failed or finished)
-    w.t += 60000;
+    w.exits['proj-docker-new-3']();  // its client exited before docker listed it: a failed start, backs off one round
+    w.t += 2 * 60000;
     poll(st, w.io);
     assert.deepEqual(w.started, ['o/a', 'o/b', 'o/c', 'o/c']);
     assert.equal(w.dock.filter((d) => d.startsWith('pull')).length, 1);
@@ -250,6 +250,67 @@ describe('poll', { concurrency: true }, () => {
     const held = run(4, true); // free and nothing coming on the 4th and 5th minute polls
     assert.equal(held.st.hosted, true, 'free for a whole poll with no runner coming: hosted');
     assert.ok(held.c.includes('run cancel 7 -R o/a'));
+  });
+
+  // Every runner container exits right away (crash on start, failed registration): docker never lists it.
+  const crashLoop = (polls, jobAt) => {
+    const w = world({ repos: ['o/a'], slots: 3, queued: { 'o/a': [] } });
+    const st = newServeState();
+    const perPoll = [];
+    for (let i = 0; i < polls; i++) {
+      w.t = T0 + i * 60000;
+      if (jobAt !== undefined && w.t >= jobAt && !w.queued['o/a'].length) {
+        const at = new Date(jobAt).toISOString();
+        w.queued['o/a'] = [{ id: 7, created_at: at }];
+        w.jobs[7] = [{ status: 'queued', labels: [LABEL], created_at: at }];
+      }
+      const before = w.started.length;
+      poll(st, w.io);
+      perPoll.push(w.started.length - before);
+      for (const k of Object.keys(w.exits)) { w.exits[k](); delete w.exits[k]; }
+    }
+    return { w, st, perPoll };
+  };
+
+  test('runners that exit before docker lists them: a job queued after serve started still falls back to hosted and is cancelled', () => {
+    const { w, st } = crashLoop(16, T0 + 30000); // polls up to T0+15 min
+    assert.equal(st.hosted, true);
+    assert.ok(cmds(w).includes('run cancel 7 -R o/a'));
+  });
+
+  test('stuck check: a job queued after the slot went free still counts once it waited 5 min', () => {
+    const at = new Date(T0 + 30000).toISOString();
+    const w = world({ repos: ['o/a'], queued: { 'o/a': [{ id: 7, created_at: at }] }, jobs: { 7: [{ status: 'queued', labels: [LABEL], created_at: at }] } });
+    const st = newServeState();
+    st.nextStart = Infinity; // no runner starting, and no failed start either
+    for (let i = 0; i <= 10; i++) { w.t = T0 + i * 60000; poll(st, w.io); }
+    assert.equal(st.fails, 0);
+    assert.equal(st.hosted, true);
+    assert.ok(cmds(w).includes('run cancel 7 -R o/a'));
+  });
+
+  test('runners that exit before docker lists them are failed starts: backoff, not one start per poll forever', () => {
+    const { st, perPoll } = crashLoop(11);
+    assert.ok(st.fails >= 2);
+    assert.ok(perPoll.filter(Boolean).length <= 4, `starts per poll: ${perPoll}`);
+    assert.equal(perPoll[1], 0, 'no start on the poll right after a failed one');
+  });
+
+  test('a listed runner that exits after its job is not a failed start', () => {
+    const w = world({ repos: ['o/a'], slots: 3 });
+    const st = newServeState();
+    poll(st, w.io);
+    assert.deepEqual(w.started, ['o/a']);
+    w.local = ['proj-docker-new-1\to/a'];
+    w.runners['o/a'] = [runner('proj-docker-new-1', { busy: true })];
+    w.t += 60000;
+    poll(st, w.io); // listed, online, running its job
+    w.local = []; w.runners['o/a'] = [];
+    w.exits['proj-docker-new-1'](); // job done, container gone
+    w.t += 60000;
+    poll(st, w.io);
+    assert.equal(st.fails, 0);
+    assert.deepEqual(w.started, ['o/a', 'o/a'], 'replaced at once, no backoff');
   });
 
   test('routing re-asserted with each heartbeat: a PROJ_RUNS_ON the watchdog deleted is set again while serve polls', () => {
