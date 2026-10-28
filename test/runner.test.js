@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import { tmpDir } from './helpers.js';
-import { plan, poll, newServeState, runnerScript, dockerArgs, startDocker, setRouting, editServed, LABEL, TARGET } from '../lib/runner.js';
+import { plan, poll, newServeState, runnerScript, dockerArgs, startDocker, setRouting, editServed, cmdHosted, LABEL, TARGET, OWN, RUNNER_VERSION } from '../lib/runner.js';
 import { runnerDefault } from '../lib/bootstrap.js';
 
 const SECRET = 'JITSECRETLITERAL0123456789';
@@ -37,23 +38,29 @@ describe('plan', { concurrency: true }, () => {
   });
 });
 
-// A fake world for poll(): repos, runners per repo, docker state, and a log of every gh call and action.
-function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, local = [], queued = {}, jobs = {} } = {}) {
-  const w = { docker, calls: [], started: [], acts: [], t: Date.parse('2026-10-27T12:00:00Z') };
+// A fake world for poll(): repos, runners per repo, docker state, and a log of every gh call, docker command and action.
+function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, local = [], queued = {}, jobs = {}, slots } = {}) {
+  const w = { repos, docker, runners, local, queued, jobs, calls: [], started: [], acts: [], dock: [], exits: {}, refuse: new Set(), view: {}, t: T0 };
   const json = (args) => {
     w.calls.push(args);
-    if (args[0] === 'repo') return args[2] === 'o/gone' ? null : { isPrivate: args[2] !== 'o/public', isArchived: args[2] === 'o/archived' };
+    if (args[0] === 'repo') return w.view[args[2]] !== undefined ? w.view[args[2]] : args[2] === 'o/gone' ? null : { isPrivate: args[2] !== 'o/public', isArchived: args[2] === 'o/archived' };
     const m = args[1].match(/^repos\/([^/]+\/[^/]+)\/actions\/(runners|runs)(?:\/(\d+)\/jobs)?/);
-    if (m[2] === 'runners') return { runners: runners[m[1]] || [] };
-    if (m[3]) return { jobs: jobs[m[3]] || [] };
-    return { workflow_runs: queued[m[1]] || [] };
+    if (m[2] === 'runners') return { runners: w.runners[m[1]] || [] };
+    if (m[3]) return { jobs: w.jobs[m[3]] || [] };
+    return { workflow_runs: w.queued[m[1]] || [] };
   };
   w.io = {
-    config: () => ({ repos }),
+    config: () => ({ repos: w.repos, ...(slots && { slots }) }),
     ghJson: json,
-    gh: (args) => { w.calls.push(args); return { code: 0, out: '', err: '' }; },
-    run: (cmd, args) => (args[0] === 'version' ? { code: w.docker ? 0 : 1, out: '' } : { code: 0, out: local.join('\n') }),
-    start: (o) => { w.started.push(o.slug); },
+    // GitHub refuses to delete a runner that holds a job: ids in w.refuse fail.
+    gh: (args) => { w.calls.push(args); return { code: args[2] === 'DELETE' && w.refuse.has(args[3].split('/').pop()) ? 1 : 0, out: '', err: '' }; },
+    run: (cmd, args) => {
+      if (args[0] === 'version') return { code: w.docker ? 0 : 1, out: '' };
+      if (args[0] === 'ps') return { code: 0, out: w.local.join('\n') };
+      w.dock.push(args.join(' '));
+      return { code: 0, out: '' };
+    },
+    start: (o, onExit) => { w.started.push(o.slug); w.maxMin = o.maxMin; const name = `proj-docker-new-${w.started.length}`; w.exits[name] = onExit; return name; },
     act: (what, fn) => { w.acts.push(what); return fn(); },
     warn: () => {},
     now: () => w.t,
@@ -61,14 +68,17 @@ function world({ repos = ['o/a', 'o/b', 'o/c'], docker = true, runners = {}, loc
   return w;
 }
 const runner = (name, o = {}) => ({ name, status: 'online', busy: false, labels: [{ name: 'self-hosted' }, { name: LABEL }], ...o });
+const T0 = Date.parse('2026-10-27T12:00:00Z');
+const ago = (min, t = T0) => Math.floor((t - min * 60000) / 1000); // a proj.started label
+const cmds = (w) => w.calls.map((c) => c.join(' '));
 
 describe('poll', { concurrency: true }, () => {
   test('first healthy poll sets routing and fills the pool; containers still starting count as idle', () => {
     const w = world({ runners: { 'o/a': [runner('proj-docker-x-1')], 'o/b': [runner('busy', { busy: true })] }, local: ['proj-docker-x-1\to/a', 'proj-docker-x-2\to/b', 'proj-docker-x-3\to/a'] });
     const st = newServeState();
     poll(st, w.io);
-    assert.deepEqual(w.acts.filter((a) => a.includes('PROJ_RUNS_ON')), ['set PROJ_RUNS_ON on o/a', 'set PROJ_RUNS_ON on o/b', 'set PROJ_RUNS_ON on o/c']);
-    assert.ok(w.calls.some((c) => c.join(' ') === `variable set PROJ_RUNS_ON -R o/a --body ${TARGET}`));
+    assert.deepEqual(w.acts.filter((a) => /^(set|delete) PROJ_RUNS_ON/.test(a)), ['set PROJ_RUNS_ON on o/a', 'set PROJ_RUNS_ON on o/b', 'set PROJ_RUNS_ON on o/c']);
+    assert.ok(cmds(w).includes(`variable set PROJ_RUNS_ON -R o/a --body ${TARGET}`));
     assert.deepEqual(w.started, [], '3 of 3 slots in use');
     assert.equal(st.hosted, false);
     const w2 = world({ runners: { 'o/a': [runner('r1')] } });
@@ -87,39 +97,178 @@ describe('poll', { concurrency: true }, () => {
 
   test('docker down twice: flip to hosted, cancel runs queued >5 min on proj labels, re-run them later; flip back when healthy', () => {
     const old = '2026-10-27T11:50:00Z'; const fresh = '2026-10-27T11:58:00Z';
-    const w = world({
-      repos: ['o/a'],
-      queued: { 'o/a': [{ id: 7, created_at: old }, { id: 8, created_at: fresh }, { id: 9, created_at: old }] },
-      jobs: { 7: [{ status: 'queued', labels: ['self-hosted', LABEL], created_at: old }], 9: [{ status: 'queued', labels: ['ubuntu-latest'], created_at: old }] },
-    });
+    const w = world({ repos: ['o/a'] });
     const st = newServeState();
     poll(st, w.io); // healthy: routing on
+    w.queued = { 'o/a': [{ id: 7, created_at: old }, { id: 8, created_at: fresh }, { id: 9, created_at: old }] };
+    w.jobs = { 7: [{ status: 'queued', labels: ['self-hosted', LABEL], created_at: old }], 9: [{ status: 'queued', labels: ['ubuntu-latest'], created_at: old }] };
     w.docker = false;
     poll(st, w.io);
     assert.equal(st.hosted, false, 'one failed poll is not enough');
     poll(st, w.io);
     assert.equal(st.hosted, true);
-    assert.ok(w.calls.some((c) => c.join(' ') === 'variable delete PROJ_RUNS_ON -R o/a'));
-    assert.ok(w.calls.some((c) => c.join(' ') === 'run cancel 7 -R o/a'));
-    assert.ok(!w.calls.some((c) => /run cancel (8|9)/.test(c.join(' '))), 'fresh runs and hosted jobs are left alone');
+    assert.ok(cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
+    assert.ok(cmds(w).includes('run cancel 7 -R o/a'));
+    assert.ok(!cmds(w).some((c) => /run cancel (8|9)/.test(c)), 'fresh runs and hosted jobs are left alone');
     poll(st, w.io);
-    assert.ok(w.calls.some((c) => c.join(' ') === 'run rerun 7 --failed -R o/a'));
-    assert.equal(w.calls.filter((c) => c[0] === 'variable').length, 2, 'no repeated flips while down');
+    assert.ok(cmds(w).includes('run rerun 7 --failed -R o/a'));
+    assert.equal(w.calls.filter((c) => c[0] === 'variable' && c[2] === 'PROJ_RUNS_ON').length, 2, 'no repeated flips while down');
     w.docker = true;
+    w.queued = {};
     poll(st, w.io);
     assert.equal(st.hosted, false);
-    assert.equal(w.calls.filter((c) => c.join(' ').startsWith('variable set')).length, 2);
+    assert.equal(cmds(w).filter((c) => c.startsWith('variable set PROJ_RUNS_ON ')).length, 2);
+  });
+
+  test('cancelled runs are re-run even when docker recovers before the next poll', () => {
+    const old = '2026-10-27T11:50:00Z';
+    const w = world({ repos: ['o/a'], docker: false, queued: { 'o/a': [{ id: 7, created_at: old }] }, jobs: { 7: [{ status: 'queued', labels: [LABEL], created_at: old }] } });
+    const st = newServeState();
+    poll(st, w.io);
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('run cancel 7 -R o/a'));
+    w.docker = true;
+    w.queued = {};
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('run rerun 7 --failed -R o/a'));
+    assert.equal(st.reruns.size, 0);
+  });
+
+  test('an idle pool runner older than idleMinutes is unregistered, then stopped; a busy one never is', () => {
+    const w = world({
+      repos: ['o/a'],
+      runners: { 'o/a': [runner('old', { id: 11 }), runner('busy', { id: 12, busy: true }), runner('young', { id: 13 }), runner('raced', { id: 14 })] },
+      local: [`old\to/a\t${ago(25)}`, `busy\to/a\t${ago(80)}`,
+        `young\to/a\t${ago(5)}`, `raced\to/a\t${ago(30)}`],
+    });
+    w.refuse.add('14'); // took a job between the list and the delete: GitHub refuses, the container stays
+    const st = newServeState();
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/11'));
+    assert.deepEqual(w.dock, ['rm -f old']);
+    assert.ok(!cmds(w).some((c) => /runners\/(12|13)$/.test(c)), 'busy and young runners are left alone');
+    assert.deepEqual(w.started, [], 'young and raced still cover pool 1');
+    const w2 = world({ repos: ['o/a'] });
+    poll(newServeState(), w2.io);
+    assert.equal(w2.maxMin, 90, 'hard stop = idleMinutes 20 + maxMinutes 60 + 10');
+  });
+
+  test('a slow image pull never pushes the total past slots: spawned runners count until docker lists them', () => {
+    const w = world();
+    const st = newServeState();
+    poll(st, w.io);
+    assert.deepEqual(w.dock, [`pull ghcr.io/actions/actions-runner:${RUNNER_VERSION}`], 'pulled once, before the first start');
+    assert.deepEqual(w.started, ['o/a', 'o/b', 'o/c']);
+    w.t += 60000;
+    poll(st, w.io); // docker ps still lists nothing
+    assert.deepEqual(w.started, ['o/a', 'o/b', 'o/c'], 'no second batch');
+    w.local = ['proj-docker-new-1\to/a', 'proj-docker-new-2\to/b'];
+    w.t += 60000;
+    poll(st, w.io);
+    assert.equal(w.started.length, 3, 'two listed, one still spawning: 3 of 3');
+    w.exits['proj-docker-new-3']();  // its docker client exited (the container failed or finished)
+    w.t += 60000;
+    poll(st, w.io);
+    assert.deepEqual(w.started, ['o/a', 'o/b', 'o/c', 'o/c']);
+    assert.equal(w.dock.filter((d) => d.startsWith('pull')).length, 1);
+  });
+
+  test('unhealthy while docker is up: proj jobs queued >5 min with a free slot -> hosted + rescue', () => {
+    const old = '2026-10-27T11:50:00Z';
+    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('r1')] }, local: ['r1\to/a'], queued: { 'o/a': [{ id: 5, created_at: old }] }, jobs: { 5: [{ status: 'queued', labels: [LABEL], created_at: old }] } });
+    const st = newServeState();
+    poll(st, w.io);
+    assert.equal(st.hosted, false, 'just started: jobs that waited for serve get its runners first');
+    w.t += 5 * 60000;
+    poll(st, w.io);
+    assert.equal(st.hosted, true);
+    assert.ok(cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
+    assert.ok(cmds(w).includes('run cancel 5 -R o/a'));
+    w.queued = {};
+    w.t += 10 * 60000;
+    poll(st, w.io);
+    assert.equal(st.hosted, true, 'stays hosted for a while instead of flapping');
+    w.t += 30 * 60000;
+    poll(st, w.io);
+    assert.equal(st.hosted, false);
+    const busy = world({ repos: ['o/a'], slots: 1, runners: { 'o/a': [runner('r1', { busy: true })] }, local: ['r1\to/a'], queued: w.queued = { 'o/a': [{ id: 5, created_at: old }] }, jobs: { 5: [{ status: 'queued', labels: [LABEL], created_at: old }] } });
+    const sb = newServeState();
+    poll(sb, busy.io);
+    busy.t += 5 * 60000;
+    poll(sb, busy.io);
+    assert.equal(sb.hosted, false, 'every slot busy: queueing is expected');
+  });
+
+  test('runners that never come online are removed and back off; two failures -> hosted; orphan offline runners deleted', () => {
+    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('stuck1', { id: 21, status: 'offline' }), runner(`${OWN}orphan`, { id: 22, status: 'offline' }), runner('proj-docker-otherpc-1', { id: 23, status: 'offline' })] },
+      local: [`stuck1\to/a\t${ago(6)}`] });
+    const st = newServeState();
+    st.pulled = true;
+    poll(st, w.io);
+    assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/21'));
+    assert.ok(w.dock.includes('rm -f stuck1'));
+    assert.ok(cmds(w).includes('api -X DELETE repos/o/a/actions/runners/22'), 'own orphan removed');
+    assert.ok(!cmds(w).some((c) => c.endsWith('runners/23')), "another machine's runner is not ours");
+    assert.equal(st.fails, 1);
+    assert.deepEqual(w.started, [], 'backing off after a failed start');
+    assert.equal(st.hosted, false);
+    w.runners['o/a'] = [];
+    w.local = [`stuck2\to/a\t${ago(6, w.t)}`];
+    w.t += 2 * 60000 + 1000;
+    poll(st, w.io);
+    assert.equal(st.fails, 2);
+    assert.equal(st.hosted, true, 'repeated failed starts: CI goes to GitHub-hosted');
+    w.local = [];
+    w.t += 4 * 60000 + 1000;
+    poll(st, w.io);
+    assert.deepEqual(w.started, ['o/a'], 'retries after the backoff');
+  });
+
+  test('a repo that leaves the live set gets PROJ_RUNS_ON deleted and its containers stopped', () => {
+    const w = world({ repos: ['o/a', 'o/b', 'o/c'], local: ['ca\to/a', 'cb\to/b', 'cc\to/c'], runners: { 'o/a': [runner('ca')], 'o/b': [runner('cb', { busy: true })], 'o/c': [runner('cc')] } });
+    const st = newServeState();
+    for (let i = 0; i < 10; i++) poll(st, w.io);
+    w.repos = ['o/a', 'o/c'];          // removed from config
+    w.view['o/c'] = { isPrivate: false, isArchived: false }; // made public
+    poll(st, w.io);
+    assert.deepEqual(st.live, ['o/a']);
+    for (const r of ['o/b', 'o/c']) assert.ok(cmds(w).includes(`variable delete PROJ_RUNS_ON -R ${r}`), r);
+    assert.deepEqual(w.dock, ['rm -f cb', 'rm -f cc']);
+    assert.ok(!cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
+    w.view['o/a'] = null;             // unreadable once (API blip): still served
+    for (let i = 0; i < 10; i++) poll(st, w.io);
+    assert.deepEqual(st.live, ['o/a']);
+    for (let i = 0; i < 10; i++) poll(st, w.io);
+    assert.deepEqual(st.live, [], 'unreadable twice in a row (deleted): dropped');
+    assert.ok(cmds(w).includes('variable delete PROJ_RUNS_ON -R o/a'));
+  });
+
+  test('heartbeat: written before PROJ_RUNS_ON is set, every 5 min while self-hosted, never while hosted', () => {
+    const w = world({ repos: ['o/a'], runners: { 'o/a': [runner('r1')] }, local: ['r1\to/a'] });
+    const st = newServeState();
+    poll(st, w.io);
+    const c = cmds(w);
+    const beat = `variable set PROJ_RUNS_ON_HEARTBEAT -R o/a --body ${w.t / 1000}`;
+    assert.ok(c.indexOf(beat) >= 0 && c.indexOf(beat) < c.indexOf(`variable set PROJ_RUNS_ON -R o/a --body ${TARGET}`));
+    for (let i = 0; i < 9; i++) { w.t += 60000; poll(st, w.io); }
+    assert.equal(cmds(w).filter((x) => x.includes('HEARTBEAT')).length, 2, 'minutes 0 and 5');
+    w.docker = false;
+    for (let i = 0; i < 2; i++) { w.t += 60000; poll(st, w.io); }
+    assert.equal(st.hosted, true);
+    const n = cmds(w).filter((x) => x.includes('HEARTBEAT')).length;
+    for (let i = 0; i < 10; i++) { w.t += 60000; poll(st, w.io); }
+    assert.equal(cmds(w).filter((x) => x.includes('HEARTBEAT')).length, n, 'no heartbeat while hosted');
   });
 
   test('API budget: under 300 gh calls per hour for 3 repos at one poll a minute', () => {
     const w = world({ runners: { 'o/a': [runner('r1')], 'o/b': [runner('r2')], 'o/c': [runner('r3')] }, local: ['r1\to/a', 'r2\to/b', 'r3\to/c'] });
     const st = newServeState();
-    for (let i = 0; i < 60; i++) poll(st, w.io);
+    for (let i = 0; i < 60; i++) { poll(st, w.io); w.t += 60000; }
     assert.ok(w.calls.length < 300, `${w.calls.length} calls`);
     const d = world({ queued: {} });
     const sd = newServeState();
     d.docker = false;
-    for (let i = 0; i < 60; i++) poll(sd, d.io);
+    for (let i = 0; i < 60; i++) { poll(sd, d.io); d.t += 60000; }
     assert.ok(d.calls.length < 300, `${d.calls.length} calls while docker is down`);
   });
 });
@@ -188,5 +337,54 @@ describe('bootstrap default-on', { concurrency: true }, () => {
     const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'bootstrap.js'), 'utf8');
     assert.match(src, /if \(vis === '--private'\) runnerDefault\(slug\);/);
     assert.equal(src.match(/runnerDefault\(/g).length, 2, 'one definition, one call');
+  });
+});
+
+describe('when serve is not running', { concurrency: true }, () => {
+  test('proj runner hosted deletes PROJ_RUNS_ON on every served repo; the docs point to it, with a /TR that survives argv parsing', () => {
+    const calls = [];
+    cmdHosted({ repos: ['o/a', 'o/b'], ghFn: (a) => { calls.push(a.join(' ')); return { code: 0 }; } });
+    assert.deepEqual(calls, ['variable delete PROJ_RUNS_ON -R o/a', 'variable delete PROJ_RUNS_ON -R o/b']);
+    assert.throws(() => cmdHosted({ repos: ['o/a'], ghFn: () => ({ code: 1, err: 'HTTP 403' }) }), /still routed/);
+    const doc = fs.readFileSync(path.join(import.meta.dirname, '..', 'docs', 'UTILITIES.md'), 'utf8');
+    assert.match(doc, /proj runner hosted/);
+    assert.doesNotMatch(doc, /use --hosted` in each repo/);
+    // Verified with an argv echo in PowerShell 7.6: schtasks receives /TR "\"C:\...\node.exe\" \"C:\...\proj.js\" runner serve".
+    assert.match(doc, /\$tr = '"\{0\}" "\{1\}" runner serve' -f/);
+    assert.doesNotMatch(doc, /\/TR "\\"/, 'no backslash-escaped quotes inside a PowerShell string');
+  });
+
+  test('watchdog: a heartbeat over 10 min old routes CI to hosted and re-runs proj-queued runs; fresh or missing does nothing', { skip: process.platform === 'win32' && 'needs a POSIX shell' }, () => {
+    const yml = fs.readFileSync(path.join(import.meta.dirname, '..', 'docs', 'runner-watchdog.yml'), 'utf8');
+    assert.match(yml, /cron: '\*\/15 \* \* \* \*'/);
+    assert.match(yml, /runs-on: ubuntu-latest/);
+    const script = yml.split('run: |\n')[1].split('\n').map((l) => l.slice(10)).join('\n');
+    const dir = tmpDir('wd-');
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/bash
+echo "$*" >> "$LOG"
+case "$1 $2 $3" in
+  "variable get PROJ_RUNS_ON") [ -n "$RUNS_ON" ] && echo "$RUNS_ON"; [ -n "$RUNS_ON" ]; exit ;;
+  "variable get PROJ_RUNS_ON_HEARTBEAT") [ -n "$HB" ] && echo "$HB"; [ -n "$HB" ]; exit ;;
+esac
+case "$1 $2" in
+  "api repos/o/a/actions/runs?status=queued&per_page=50") echo 7; echo 8 ;;
+  "api repos/o/a/actions/runs/7/jobs") echo self-hosted; echo proj-ephemeral ;;
+  "api repos/o/a/actions/runs/8/jobs") echo ubuntu-latest ;;
+  "run view") echo completed ;;
+esac
+exit 0
+`, { mode: 0o755 });
+    const go = (HB, RUNS_ON = TARGET) => {
+      const LOG = path.join(dir, `log-${Math.random()}`);
+      const r = spawnSync('bash', ['-c', script], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GH_TOKEN: 'x', REPOS: 'o/a', LOG, HB, RUNS_ON }, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8').trim().split('\n') : [];
+    };
+    const s = Math.floor(Date.now() / 1000);
+    const stale = go(String(s - 700));
+    assert.ok(stale.includes('variable delete PROJ_RUNS_ON -R o/a'));
+    assert.ok(stale.includes('run cancel 7 -R o/a') && stale.includes('run rerun 7 --failed -R o/a'));
+    assert.ok(!stale.some((l) => / 8 /.test(l) && l.startsWith('run')), 'a hosted run is left alone');
+    for (const log of [go(String(s - 60)), go(''), go('garbage'), go(String(s - 700), '')]) assert.ok(!log.some((l) => /delete|cancel|rerun/.test(l)), log.join('|'));
   });
 });

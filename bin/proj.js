@@ -26,7 +26,7 @@ Create
 Optional utilities (nothing above requires them)
   tasks      proj task <slug> --goal .. | status | checkpoint | resume [--restore] | review | finish [--merge|--abandon]
   verify     proj check [--full|--heavy] [--remote] [--again] | proj check --heavy --ci | proj ready [--wait]
-  CI cost    proj perf [--runs 20] [--json] | proj bench [--runs 3] | proj runner [status|start|use|clean|serve]
+  CI cost    proj perf [--runs 20] [--json] | proj bench [--runs 3] | proj runner [status|start|use|clean|serve|hosted]
   upkeep     proj doctor [--all] [--report] [--json] [--schedule weekly|off] | proj clean [--apply]
   compute    proj offload [\"<command>\"]   (a machine you already have, via ssh or your own command)
   hooks      proj hook <session-start|pre-compact|session-end>   (installed with --tasks)
