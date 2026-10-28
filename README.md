@@ -1,28 +1,47 @@
-# project-starter
+<p align="center">
+  <img src="docs/assets/readme/hero.svg" width="100%" alt="project-starter: a terminal runs proj new mealplan with a web app description and prints what it understood: a web app on node, with the Creative Director kit and a security reviewer for payments.">
+</p>
 
-Describe what you are building; get a repository set up the way a careful senior engineer would set it up for
-you: tailored to the project, ready for AI coding agents, cheap to run in CI, and protected on GitHub.
+<p align="center">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugin-34d399?style=flat-square&labelColor=1e293b" alt="Claude Code plugin">
+  <img src="https://img.shields.io/badge/node-22%2B-34d399?style=flat-square&labelColor=1e293b" alt="Node 22+">
+  <img src="https://img.shields.io/badge/tested%20on-Windows%20%C2%B7%20Linux-34d399?style=flat-square&labelColor=1e293b" alt="Tested on Windows and Linux">
+  <img src="https://img.shields.io/badge/dependencies-0-34d399?style=flat-square&labelColor=1e293b" alt="Zero runtime dependencies">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-34d399?style=flat-square&labelColor=1e293b" alt="MIT license"></a>
+</p>
 
-```powershell
-proj new mealplan "A web app where families plan weekly meals and pay a monthly subscription with Stripe"
-```
+<p align="center">
+  <b>Start every project the way a careful senior engineer would.</b><br>
+  Tell Claude what you're building; get tests, cheap CI, GitHub protections and agent instructions tailored to it.
+</p>
 
-```text
-Understood: web-app on node · visual (Creative Director kit) · security reviewer for auth, payments
-```
+## Quick start
 
-## Install
+1. **Install the plugin.** From your terminal:
 
-In Claude Code (adds the `new-project` skill and puts `proj` on Claude's shell PATH):
+   ```text
+   claude plugin install project-starter --marketplace trexchery/project-starter
+   ```
 
-```text
-/plugin install project-starter --marketplace trexchery/project-starter
-```
+   Or inside Claude Code, in two steps:
 
-Then say "start a new project: …" or run `/project-starter:new-project`. Claude asks at most three questions,
-creates the repository, and fills in the brief and project-specific rules from your conversation.
+   ```text
+   /plugin marketplace add trexchery/project-starter
+   /plugin install project-starter@project-starter
+   ```
 
-For your own terminal (Windows, macOS, Linux; Node 22+, git, and `gh` for GitHub):
+2. **Say what you want.** "start a new project: a Go CLI that checks a site for broken links", or run
+   `/project-starter:new-project`.
+3. **Answer at most three questions.** Claude creates the repository, fills in the brief and project rules from the
+   conversation, runs the tests, pushes, checks GitHub has that exact SHA, and only then turns on protection.
+
+> While the repository is private, installing needs read access to `trexchery/project-starter` and git credentials
+> for it (`gh auth setup-git`).
+
+<details>
+<summary>Use it from your own terminal (no Claude Code)</summary>
+
+Needs Node 22+, git, and `gh` for GitHub.
 
 ```powershell
 npm install -g github:trexchery/project-starter
@@ -32,48 +51,73 @@ proj new <name> "what you are building"
 On Windows, if `proj` is not found afterwards, install into the per-user npm folder:
 `npm install -g --prefix "$env:APPDATA\npm" github:trexchery/project-starter`.
 
-## What a project gets
+</details>
 
-Every project:
+## How it works
 
-- the stack's skeleton with a passing test for node and python; for other languages a placeholder check that the
-  `new-project` skill replaces with the real toolchain;
-- `AGENTS.md` as the single source of truth for every agent, and `CLAUDE.md` importing it;
-- subagents that pick their own model and effort: `scout` (haiku, low), `implementer` (sonnet, medium),
-  `reviewer` (sonnet, high), `deep` (opus, high), with matching Codex agents;
-- CI that costs nothing on draft pull requests and runs once per commit when one is marked ready;
-- Dependabot, issue and PR templates, `docs/BRIEF.md`, `docs/DECISIONS.md`, LF line endings, safe git defaults;
-- a private GitHub repository with squash-only merges and a ruleset that requires the CI check (skip with
-  `--no-remote`).
+<p align="center">
+  <img src="docs/assets/readme/flow.svg" width="100%" alt="Four steps: describe the idea; it is understood as a kind, stack, screens and sensitive data; the repository is rendered with tests, CI, AGENTS.md and subagents; then it is protected once the tests pass and the exact commit is on GitHub.">
+</p>
 
-Only when it fits:
+`proj new` prints what it understood and why. Flags override it (`--visual`, `--no-visual`,
+`--sensitive auth,payments`, `--database`, `--stack python`), and `--profile file.json` sets everything exactly.
+
+## Fits what you build
+
+<p align="center">
+  <img src="docs/assets/readme/kinds.svg" width="100%" alt="Kinds: web app, website, mobile app and game, which also get the Creative Director kit, plus API, CLI, library and data. JavaScript and TypeScript, Python, Go, Rust and C# get real skeleton tests; any other language works through a check script.">
+</p>
+
+Node/TypeScript, Python, Go, Rust and C# projects start with a passing skeleton test. Any other language gets
+`scripts/check.ps1`, which fails as "NOT VERIFIED" until it runs a real test command; the `new-project` skill sets
+that up with you.
 
 | The description mentions | The project also gets |
 | --- | --- |
 | screens: a web app, website, mobile app or game | the Creative Director kit: `/creative-director` skill, `design-researcher` and `visual-critic` agents, `DESIGN.md`, UI rules |
-| accounts, payments, personal data or stored keys | a `security` reviewer agent, rules scoped to auth and payment code, and a "Sensitive areas" section |
+| accounts, payments, personal data or stored keys | a `security` reviewer agent, rules scoped to auth and payment code, a "Sensitive areas" section |
 | a database | migration and test-isolation rules scoped to schema code |
 | `--tasks` | session hooks and the optional task workflow ([utilities](docs/UTILITIES.md)) |
 
-A command-line tool or library gets no design files; a project without sensitive data gets no security
-reviewer. `proj new` prints what it understood and why; flags override it (`--visual`, `--no-visual`,
-`--sensitive auth,payments`, `--database`, `--stack python`), and `--profile file.json` sets everything exactly.
+## What every project gets
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**Agents**
+
+- `AGENTS.md` as the one source of truth, `CLAUDE.md` importing it
+- `scout`, `implementer`, `reviewer`, `deep` subagents, each with its own model and effort
+- matching Codex agents
+
+</td>
+<td width="33%" valign="top">
+
+**Checks**
+
+- a real test, or an honest "NOT VERIFIED"
+- CI free on draft PRs, once per commit when ready
+- a skipped run never counts as passed
+
+</td>
+<td width="33%" valign="top">
+
+**GitHub**
+
+- a private repository, squash-only merges
+- a ruleset that requires the CI check
+- Dependabot, issue and PR templates
+
+</td>
+</tr>
+</table>
 
 ## Your model stays yours
 
 Nothing in a generated project sets the main session's model, reasoning effort, or Ultracode and workflow use:
-those stay your choice. Each subagent declares its own model and effort, and `AGENTS.md` tells agents to route
-cheap work to cheap tiers and escalate only after a failed attempt.
-
-## Creative Director (visual projects only)
-
-`/creative-director` researches references, renders three deliberately different directions as real pages with
-desktop and mobile screenshots (`proj shot`), has `visual-critic` review them without seeing the designer's
-reasoning, and stops for your choice. Only then does it write `DESIGN.md` (tokens, components, accessibility),
-which every later UI change is checked against.
-
-See [docs/EXAMPLES.md](docs/EXAMPLES.md) for four generated projects and a real Creative Director run with its
-screenshots.
+those stay your choice. Each subagent declares its own model and effort, and `AGENTS.md` routes cheap work to cheap
+tiers and escalates only after a failed attempt.
 
 ## Existing repositories
 
@@ -84,17 +128,40 @@ proj adopt --upgrade     # later: refresh starter files you never edited
 proj protect             # squash-only merges, Dependabot, ruleset
 ```
 
-## Optional utilities
+> [!NOTE]
+> **Safety contract.** `proj` never uses `--force`, never deletes a branch or worktree without an archive ref and
+> proof that it was merged, and never re-runs CI for a commit that already passed.
 
-Task worktrees with crash recovery, exact-commit verification, CI cost profiling and benchmarks, self-hosted
-runners, remote compute, and repo health audits are available but never required: see
-[docs/UTILITIES.md](docs/UTILITIES.md). `proj help` lists every command.
+<details>
+<summary>Creative Director (visual projects only)</summary>
 
-## Develop
+`/creative-director` researches references, renders three deliberately different directions as real pages with
+desktop and mobile screenshots, has `visual-critic` review them blind, and stops for your choice. Only then does it
+write `DESIGN.md`, which every later UI change is checked against.
 
-`npm test` runs the suite (temp repos, local bare remotes, no network) in under a minute on Windows and Linux.
-`node scripts/gen-workflows.mjs` regenerates the stacks' CI workflows from one source.
+<p align="center">
+  <img src="docs/examples/mealplan-a-desktop.png" width="49%" alt="mealplan direction A, desktop">
+  <img src="docs/examples/mealplan-b-desktop.png" width="49%" alt="mealplan direction B, desktop">
+</p>
 
-## License
+The full run and four generated projects are in [docs/EXAMPLES.md](docs/EXAMPLES.md).
 
-MIT
+</details>
+
+<details>
+<summary>Optional utilities</summary>
+
+Task worktrees with crash recovery, exact-commit verification, CI cost profiling, self-hosted runners, remote
+compute and repo health audits are available but never required: see [docs/UTILITIES.md](docs/UTILITIES.md).
+`proj help` lists every command.
+
+</details>
+
+<details>
+<summary>Develop</summary>
+
+`npm test` runs the suite (temp repos, local bare remotes, no network) in under a minute.
+
+</details>
+
+<p align="center"><sub>MIT · Not affiliated with Anthropic</sub></p>

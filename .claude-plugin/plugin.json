@@ -1,6 +1,6 @@
 {
   "name": "project-starter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Start new projects from a plain-language idea: a tailored, agent-ready repository (tests, cheap CI, GitHub protections, AGENTS.md, specialist subagents, security and design kits only where they fit), plus a repo health audit.",
   "author": {
     "name": "project-starter contributors"

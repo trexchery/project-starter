@@ -1,0 +1,44 @@
+name: Runner watchdog
+# Optional; nothing installs it (setup: docs/UTILITIES.md). If `proj runner serve` stops without a signal (PC off,
+# asleep, killed), PROJ_RUNS_ON stays set and proj jobs would wait up to 24 h. Every 15 min, for each repo in the
+# secret PROJ_WATCHDOG_REPOS whose PROJ_RUNS_ON_HEARTBEAT (unix time, serve writes it every 5 min) is over 10 min
+# old: delete PROJ_RUNS_ON (CI goes GitHub-hosted) and cancel + re-run runs queued on proj-ephemeral. serve sets
+# PROJ_RUNS_ON again with its next heartbeat once it is alive (within 5 min; it re-sets it with every heartbeat).
+# Repos without a heartbeat are left alone.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Route repos whose serve went silent to GitHub-hosted
+        env:
+          GH_TOKEN: ${{ secrets.PROJ_WATCHDOG_TOKEN }}
+          REPOS: ${{ secrets.PROJ_WATCHDOG_REPOS }}
+        run: |
+          [ -n "$GH_TOKEN" ] && [ -n "$REPOS" ] || { echo "not configured"; exit 0; }
+          now=$(date +%s)
+          for r in $REPOS; do
+            echo "::add-mask::$r"
+            gh variable get PROJ_RUNS_ON -R "$r" >/dev/null 2>&1 || continue
+            hb=$(gh variable get PROJ_RUNS_ON_HEARTBEAT -R "$r" 2>/dev/null) || continue
+            case "$hb" in ''|*[!0-9]*) continue ;; esac
+            [ $((now - hb)) -gt 600 ] || continue
+            echo "$r: serve silent for $((now - hb)) s; CI -> GitHub-hosted"
+            gh variable delete PROJ_RUNS_ON -R "$r"
+            ids=
+            for id in $(gh api "repos/$r/actions/runs?status=queued&per_page=50" --jq '.workflow_runs[].id'); do
+              gh api "repos/$r/actions/runs/$id/jobs" --jq '.jobs[] | select(.status == "queued") | .labels[]' | grep -qx proj-ephemeral || continue
+              gh run cancel "$id" -R "$r" && ids="$ids $id"
+            done
+            for id in $ids; do
+              for _ in 1 2 3 4 5 6; do [ "$(gh run view "$id" -R "$r" --json status --jq .status)" = completed ] && break; sleep 5; done
+              gh run rerun "$id" --failed -R "$r" || echo "$r: re-run $id by hand"
+            done
+          done

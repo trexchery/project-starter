@@ -1,9 +1,15 @@
 name: CI
 # Drafts spend no minutes (job skipped before a runner starts); ready_for_review runs it on the exact head SHA.
+# Linux only on PRs: Windows is the development machine (verified locally with npm test) and bills 2x here.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      windows:
+        description: Also run the suite on windows-latest (once per release)
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -15,13 +21,9 @@ permissions:
 jobs:
   verify:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    steps:
+    steps: &steps
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -32,3 +34,8 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@example.invalid
       - run: npm test
+  windows:
+    if: github.event_name == 'workflow_dispatch' && inputs.windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps: *steps

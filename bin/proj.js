@@ -17,16 +17,18 @@ Create
   proj new <name> "what you are building"   understands the description and renders only what fits:
                                            stack, tests, CI, GitHub protections, AGENTS.md/CLAUDE.md,
                                            specialist agents, security/database rules, Creative Director kit
-      [--kind ..] [--stack node|python|generic] [--visual|--no-visual] [--sensitive auth,payments,pii,secrets|none]
-      [--database] [--tasks] [--profile file.json] [--dir <parent>] [--no-remote] [--dry-run]
+      [--kind ..] [--stack node|typescript|python|go|rust|dotnet|generic] [--visual|--no-visual] [--sensitive auth,payments,pii,secrets|none]
+      [--database] [--tasks] [--profile file.json] [--dir <parent>] [--no-remote] [--no-protect] [--dry-run]
+      --no-protect: create and push the repo, apply protections later with proj protect (after your own first push)
   proj adopt [--dry-run] [--upgrade] [same profile flags]   add missing pieces to an existing repo; never overwrites
   proj protect [--dry-run]                 squash-only, Dependabot, default-branch ruleset (plan-aware)
-  proj shot <page.html|url> <out.png> [--width 1440] [--height 900]   screenshot with local Chrome/Edge
+  proj shot <page.html|url> <out.png> [--width 1440] [--height 900] [--delay ms]   screenshot with local Chrome/Edge
+                                           (page.html#state shows a state; --delay lets animations finish)
 
 Optional utilities (nothing above requires them)
   tasks      proj task <slug> --goal .. | status | checkpoint | resume [--restore] | review | finish [--merge|--abandon]
   verify     proj check [--full|--heavy] [--remote] [--again] | proj check --heavy --ci | proj ready [--wait]
-  CI cost    proj perf [--runs 20] [--json] | proj bench [--runs 3] | proj runner [status|start|use|clean]
+  CI cost    proj perf [--runs 20] [--json] | proj bench [--runs 3] | proj runner [status|start|use|clean|serve|hosted]
   upkeep     proj doctor [--all] [--report] [--json] [--schedule weekly|off] | proj clean [--apply]
   compute    proj offload [\"<command>\"]   (a machine you already have, via ssh or your own command)
   hooks      proj hook <session-start|pre-compact|session-end>   (installed with --tasks)
@@ -34,7 +36,7 @@ Optional utilities (nothing above requires them)
 
 const BOOL = new Set(['dry-run', 'no-remote', 'upgrade', 'all', 'json', 'offline', 'push', 'restore', 'full', 'heavy',
   'remote', 'ci', 'wait', 'merge', 'abandon', 'report', 'deps', 'apply', 'quiet', 'clear-blockers', 'allow-overlap', 'verbose', 'help',
-  'again', 'docker', 'host', 'hosted', 'visual', 'no-visual', 'database', 'no-database', 'tasks']);
+  'again', 'once', 'docker', 'host', 'hosted', 'visual', 'no-visual', 'database', 'no-database', 'tasks', 'no-protect']);
 
 export function parse(argv) {
   const opts = {}; const pos = [];

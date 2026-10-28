@@ -1,0 +1,3 @@
+export function hello(name{{#ts}}: string{{/ts}} = 'world'){{#ts}}: string{{/ts}} {
+  return `hello, ${name}`;
+}

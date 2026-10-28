@@ -1,0 +1,11 @@
+{
+  "stack": "dotnet",
+  "checks": {
+    "affected": "dotnet test",
+    "full": "dotnet test",
+    "heavy": null
+  },
+  "testGlobs": [],
+  "setup": "dotnet restore",
+  "test": "dotnet test"
+}
