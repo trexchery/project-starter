@@ -28,7 +28,7 @@ Create
 Optional utilities (nothing above requires them)
   tasks      proj task <slug> --goal .. | status | checkpoint | resume [--restore] | review | finish [--merge|--abandon]
   verify     proj check [--full|--heavy] [--remote] [--again] | proj check --heavy --ci | proj ready [--wait]
-  CI cost    proj perf [--runs 20] [--json] | proj bench [--runs 3] | proj runner [status|start|use|clean]
+  CI cost    proj perf [--runs 20] [--json] | proj bench [--runs 3] | proj runner [status|start|use|clean|serve|hosted]
   upkeep     proj doctor [--all] [--report] [--json] [--schedule weekly|off] | proj clean [--apply]
   compute    proj offload [\"<command>\"]   (a machine you already have, via ssh or your own command)
   hooks      proj hook <session-start|pre-compact|session-end>   (installed with --tasks)
@@ -36,7 +36,7 @@ Optional utilities (nothing above requires them)
 
 const BOOL = new Set(['dry-run', 'no-remote', 'upgrade', 'all', 'json', 'offline', 'push', 'restore', 'full', 'heavy',
   'remote', 'ci', 'wait', 'merge', 'abandon', 'report', 'deps', 'apply', 'quiet', 'clear-blockers', 'allow-overlap', 'verbose', 'help',
-  'again', 'docker', 'host', 'hosted', 'visual', 'no-visual', 'database', 'no-database', 'tasks', 'no-protect']);
+  'again', 'once', 'docker', 'host', 'hosted', 'visual', 'no-visual', 'database', 'no-database', 'tasks', 'no-protect']);
 
 export function parse(argv) {
   const opts = {}; const pos = [];
