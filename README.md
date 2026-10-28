@@ -20,7 +20,8 @@ In Claude Code (adds the `new-project` skill and puts `proj` on Claude's shell P
 ```
 
 Then say "start a new project: …" or run `/project-starter:new-project`. Claude asks at most three questions,
-creates the repository, and fills in the brief and project-specific rules from your conversation.
+creates the repository, fills in the brief and project-specific rules from your conversation, runs the tests,
+pushes that commit, checks that GitHub has exactly that SHA, and only then turns on branch protection.
 
 For your own terminal (Windows, macOS, Linux; Node 22+, git, and `gh` for GitHub):
 
@@ -36,8 +37,8 @@ On Windows, if `proj` is not found afterwards, install into the per-user npm fol
 
 Every project:
 
-- the stack's skeleton with a passing test for node and python; for other languages a placeholder check that the
-  `new-project` skill replaces with the real toolchain;
+- the stack's skeleton with a passing test for node and python. Other languages get `scripts/check.ps1`, which fails
+  ("NOT VERIFIED") until it lists a real test command; the `new-project` skill sets up the real toolchain;
 - `AGENTS.md` as the single source of truth for every agent, and `CLAUDE.md` importing it;
 - subagents that pick their own model and effort: `scout` (haiku, low), `implementer` (sonnet, medium),
   `reviewer` (sonnet, high), `deep` (opus, high), with matching Codex agents;
@@ -70,7 +71,9 @@ cheap work to cheap tiers and escalate only after a failed attempt.
 `/creative-director` researches references, renders three deliberately different directions as real pages with
 desktop and mobile screenshots (`proj shot`), has `visual-critic` review them without seeing the designer's
 reasoning, and stops for your choice. Only then does it write `DESIGN.md` (tokens, components, accessibility),
-which every later UI change is checked against.
+which every later UI change is checked against. Only when the product needs it does it also shoot interaction
+states (`page.html#error`), settled motion (`--delay`) and a reduced-motion variant, and record a performance budget
+that is measured once screens exist.
 
 See [docs/EXAMPLES.md](docs/EXAMPLES.md) for four generated projects and a real Creative Director run with its
 screenshots.

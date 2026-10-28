@@ -39,6 +39,23 @@ For a game or a native mobile app the page is only a canvas: show the main scree
 over a representative scene, plus the title or menu screen), not a website about the product.
 Look at every screenshot yourself before moving on.
 
+### Behaviour checks (only when the product needs them)
+
+Static screenshots are enough for most products: pages, forms, lists, dashboards. Add a check below only when the
+brief or the target depends on it, and only for the parts that do:
+- **Interaction** (custom controls, drag and drop, editors, multi-step flows): the page shows each key state when its
+  URL hash names it (`#focus`, `#error`, `#empty`, `#menu-open`). Shoot each state:
+  `proj shot design/directions/a/index.html#error design/directions/a/state-error.png --width 390 --height 844`.
+  Every interactive element has a visible focus style.
+- **Motion** (motion is part of the identity, onboarding, game feel): durations and easing are named tokens. Shoot
+  the settled end frame with `--delay 2000` and a `#reduced-motion` state that keeps the meaning without movement.
+  Interface motion stays at or under 300 ms and never blocks input.
+- **Performance** (games, low-end phones, slow networks, very large lists, or a budget in the brief): write the
+  budget into the direction's comment block, e.g. "LCP under 2.5 s on a mid-range phone, under 200 KB of
+  JavaScript gzipped, 60 fps while animating". Flag choices that threaten it: large images, many web fonts, blur,
+  video backgrounds. A static mockup cannot prove a budget, so it is measured once screens exist (step 7).
+Give these extra shots and the budget to `visual-critic` along with the screenshots.
+
 ## 4. Independent critique
 
 For each direction, give the `visual-critic` agent only the screenshots, the brief and the direction's one-line
@@ -57,10 +74,14 @@ From the chosen direction, rewrite `DESIGN.md`: status approved with the date an
 tokens (color roles with hex values and text contrast ratios, type scale, spacing scale, radius, elevation,
 motion); layout grid and breakpoints; core components with their states (button, input, card, navigation);
 imagery and icons; voice and microcopy; accessibility rules (text contrast at least 4.5:1, visible focus, touch
-targets at least 44px); do and don't. Record the choice in `docs/DECISIONS.md`. Keep `design/directions/` as
+targets at least 44px); do and don't. Only if the behaviour checks applied: interaction states per component,
+motion tokens with the reduced-motion rule, and the performance budget. Record the choice in `docs/DECISIONS.md`. Keep `design/directions/` as
 the reference.
 
 ## 7. Afterwards
 
 Every UI change comes with fresh screenshots and a `visual-critic` review against `DESIGN.md` before its pull
-request is marked ready.
+request is marked ready. If `DESIGN.md` lists interaction states or motion, the changed states are shot too. If it
+has a performance budget, the pull request reports measured numbers against it, using the stack's own tool
+(Lighthouse or a browser performance trace for web, the engine's profiler for games). A budget that was not
+measured is reported as not verified.

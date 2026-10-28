@@ -1,15 +1,16 @@
 # Examples
 
 Four fresh repositories made with `proj new <name> "<description>" --no-remote`, with nothing edited by hand. They
-show the same tool handing different projects different foundations. Each generated test or check passed in its
-repo (exit 0).
+show the same tool handing different projects different foundations. The node and python tests passed in their
+repos (exit 0). The Rust service's placeholder check failed with "NOT VERIFIED" (exit 2), as intended, until a real
+test command is added.
 
 | Description | Understood | Files | Subagents | Check |
 | --- | --- | --- | --- | --- |
 | A web app where families plan weekly meals, share recipes and pay a monthly subscription with Stripe; accounts, Postgres database | web-app on node · visual (Creative Director kit) · security reviewer for auth, payments · database rules | 42 | scout, implementer, reviewer, deep, security, design-researcher, visual-critic | `npm test` |
 | A Python command-line tool that cleans and validates CSV exports | cli on python · no visual kit · no sensitive data | 31 | scout, implementer, reviewer, deep | `python -m pytest` |
 | A small TypeScript library for structured logging | library on node · no visual kit · no sensitive data | 32 | scout, implementer, reviewer, deep | `npm test` |
-| A Rust service that ingests telemetry from field sensors | api on generic · no visual kit · no sensitive data | 29 | scout, implementer, reviewer, deep | `scripts/check.ps1` (placeholder until the `new-project` skill sets up `cargo test`) |
+| A Rust service that ingests telemetry from field sensors | api on generic · no visual kit · no sensitive data | 29 | scout, implementer, reviewer, deep | `scripts/check.ps1`: exits 2, "NOT VERIFIED", until `cargo test` is listed in it |
 
 What differs between them:
 

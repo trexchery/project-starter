@@ -44,6 +44,8 @@ test('every shipped skill: valid frontmatter, no model or effort override, no de
   }
 });
 
-test('bin/proj shim delegates to proj.js', () => {
+test("bin shims delegate to proj.js on both of Claude Code's shells (the plugin puts bin/ on PATH)", () => {
   assert.match(fs.readFileSync(path.join(ROOT, 'bin', 'proj'), 'utf8'), /exec node "\$\(dirname "\$0"\)\/proj\.js" "\$@"/);
+  // PowerShell cannot run the extensionless sh shim: without proj.cmd, `proj protect` silently did nothing there.
+  assert.match(fs.readFileSync(path.join(ROOT, 'bin', 'proj.cmd'), 'utf8'), /^@node "%~dp0proj\.js" %\*\r?\n$/);
 });
