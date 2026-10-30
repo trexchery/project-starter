@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import { tmpDir, makeRepo, git, proj } from './helpers.js';
-import { plan, poll, newServeState, runnerScript, dockerArgs, startDocker, setRouting, editServed, cmdHosted, runnerPkg, LABEL, TARGET, RUNNER_VERSION } from '../lib/runner.js';
+import { plan, poll, newServeState, runnerScript, dockerArgs, IMAGE, startDocker, setRouting, editServed, cmdHosted, runnerPkg, LABEL, TARGET, RUNNER_VERSION } from '../lib/runner.js';
 import { runnerDefault } from '../lib/bootstrap.js';
 import { shotUrl } from '../lib/design.js';
 
@@ -731,6 +731,16 @@ describe('runner token handling', { concurrency: true }, () => {
     assert.match(s, /^set -e; IFS= read -r ACTIONS_RUNNER_INPUT_JITCONFIG; export ACTIONS_RUNNER_INPUT_JITCONFIG; /);
     assert.match(s, /timeout --kill-after=30 1800 \.\/run\.sh$/);
     assert.equal(dockerArgs({ name: 'n', slug: 'o/a', maxMin: 30 }).at(-1), s);
+  });
+
+  test('a configured runner.serve.image replaces the stock image and keeps every hardening flag', () => {
+    const stock = dockerArgs({ name: 'n', slug: 'o/a', maxMin: 30 });
+    const own = dockerArgs({ name: 'n', slug: 'o/a', maxMin: 30, image: 'drill-desk-ci-runner:abc' });
+    assert.equal(stock.at(-4), IMAGE);
+    assert.equal(own.at(-4), 'drill-desk-ci-runner:abc');
+    assert.deepEqual(own.slice(0, -4), stock.slice(0, -4));
+    assert.match(own.join(' '), /--cap-drop ALL --security-opt no-new-privileges/);
+    assert.doesNotMatch(own.join(' '), /--privileged|-v |--volume|docker\.sock|--network/);
   });
 
   test('setRouting: set the target, delete for hosted, a missing variable already counts as hosted', () => {
