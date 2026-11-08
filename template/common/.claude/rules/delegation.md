@@ -24,7 +24,7 @@ Every agent re-reads its whole context on every turn, so output that enters cont
 turn. In practice these re-reads are almost all of a workflow's tokens.
 
 - Cap command output: `| head -50`, `| tail -30`, `grep -c`, `wc -l`, `git diff --stat`. For long logs or test runs,
-  write to a scratch file and grep it.
+  write to a scratch file and grep it. Never cap away what you are looking for: grep the full file for failures and
+  errors instead of reading only its first lines.
 - Read files with offset/limit when only part matters; grep first to find the lines.
-- Workflow briefs: give file paths, not pasted notes. One narrow question per agent. Prefer 3-5 agents over 10+.
-- Tell each agent to finish within about 40 turns and return at most 300 words; detail goes in a file.
+- Workflow briefs: give file paths, not pasted notes. One narrow question per agent.
